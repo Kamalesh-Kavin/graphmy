@@ -22,7 +22,6 @@ import pytest
 from graphmy.graph._model import EdgeKind, SymbolKind
 from graphmy.indexer._go import GoParser
 
-
 FIXTURE_DIR = Path(__file__).parent / "fixtures" / "sample_go"
 FIXTURE_FILE = FIXTURE_DIR / "main.go"
 

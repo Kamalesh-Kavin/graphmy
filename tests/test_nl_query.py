@@ -23,7 +23,6 @@ from graphmy.query._nl import NLHit, NLQuery, NLQueryResult
 from graphmy.search._embedder import Embedder
 from graphmy.search._vector_store import VectorStore
 
-
 # ---------------------------------------------------------------------------
 # Stubs
 # ---------------------------------------------------------------------------

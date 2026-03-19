@@ -202,7 +202,7 @@ def run_server(
     )
 
     print(f"  [graphmy] Serving graph at http://{host}:{port}")
-    print(f"  [graphmy] Press Ctrl+C to stop.")
+    print("  [graphmy] Press Ctrl+C to stop.")
 
     uvicorn.run(
         app,

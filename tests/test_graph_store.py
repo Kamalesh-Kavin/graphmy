@@ -15,13 +15,9 @@ Tests cover:
 from __future__ import annotations
 
 import json
-from pathlib import Path
-
-import pytest
 
 from graphmy.graph._model import Edge, EdgeKind, SymbolKind, SymbolNode
 from graphmy.graph._store import GraphStore
-
 
 # ---------------------------------------------------------------------------
 # Helpers — quick node / edge builders

@@ -9,8 +9,11 @@ Two sub-modules:
 """
 
 from graphmy.query._nl import NLHit, NLQuery, NLQueryResult
-from graphmy.query._structural import StructuralResult, call_chain, callers, callees
 from graphmy.query._structural import (
+    StructuralResult,
+    call_chain,
+    callees,
+    callers,
     find_symbol,
     implementors,
     imports_of,

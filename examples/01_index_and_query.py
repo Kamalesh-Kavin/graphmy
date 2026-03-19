@@ -58,7 +58,7 @@ def main() -> None:
     # 3. Print index stats so we know what was found.
     # -----------------------------------------------------------------------
     stats = index.stats()
-    print(f"\n[01] Index stats:")
+    print("\n[01] Index stats:")
     print(f"     Nodes : {stats['total_nodes']}")
     print(f"     Edges : {stats['total_edges']}")
     print(f"     By kind: {stats['by_kind']}")

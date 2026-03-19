@@ -22,8 +22,9 @@ Why networkx DiGraph?
 from __future__ import annotations
 
 import json
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 import networkx as nx
 
@@ -267,7 +268,7 @@ class GraphStore:
             json.dump(data, f, indent=2)
 
     @classmethod
-    def load(cls, path: Path, project_root: Path | None = None) -> "GraphStore":
+    def load(cls, path: Path, project_root: Path | None = None) -> GraphStore:
         """
         Load a GraphStore from a JSON file previously saved by save().
 

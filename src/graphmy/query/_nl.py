@@ -30,7 +30,6 @@ from graphmy.graph._store import GraphStore
 from graphmy.search._embedder import Embedder
 from graphmy.search._vector_store import VectorStore
 
-
 # ---------------------------------------------------------------------------
 # Result types
 # ---------------------------------------------------------------------------
@@ -53,7 +52,7 @@ class NLQueryResult:
     """
 
     query: str
-    hits: list["NLHit"] = field(default_factory=list)
+    hits: list[NLHit] = field(default_factory=list)
     explanation: str = ""
 
     def as_dict(self) -> dict[str, Any]:

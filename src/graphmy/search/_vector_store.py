@@ -150,7 +150,7 @@ class VectorStore:
 
         return [
             {"node_id": nid, "distance": dist, "document": doc}
-            for nid, dist, doc in zip(ids, distances, documents)
+            for nid, dist, doc in zip(ids, distances, documents, strict=False)
         ]
 
     def delete_by_file(self, file_path: str) -> None:

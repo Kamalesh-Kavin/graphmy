@@ -104,7 +104,7 @@ class GraphmyConfig:
             self.openai_model = env_model
 
     @classmethod
-    def from_toml(cls, config_path: Path) -> "GraphmyConfig":
+    def from_toml(cls, config_path: Path) -> GraphmyConfig:
         """
         Load configuration from a .graphmy/config.toml file.
 
@@ -133,7 +133,7 @@ class GraphmyConfig:
         )
 
     @classmethod
-    def load(cls, project_root: Path) -> "GraphmyConfig":
+    def load(cls, project_root: Path) -> GraphmyConfig:
         """
         Convenience loader: reads .graphmy/config.toml from the project root
         (if it exists) and applies environment variable overrides.
