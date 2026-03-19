@@ -345,7 +345,6 @@ def cmd_viz(
             project_root=project_root,
             output_path=output_path,
             graphmy_version=__version__,
-            serve_mode=False,
         )
         size_kb = written.stat().st_size / 1024
         click.echo(f"  Saved: {written}  ({size_kb:.0f} KB)")

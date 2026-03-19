@@ -2,938 +2,538 @@
 {#
   graphmy/viz/templates/graph.html.j2
   =====================================
-  Self-contained HTML visualisation for a graphmy knowledge graph.
+  Self-contained static tree-view for a graphmy knowledge graph.
 
-  This file is rendered by Jinja2 (_template.py) and produces a single
-  .html file with NO external dependencies beyond CDN scripts.
+  Zero external dependencies. No NL query bar. No source bodies.
+  Designed to stay under 2 MB for large codebases.
 
-  Template variables (all passed from _template.py):
-    graph_data_json : str  — JSON string {"nodes": [...], "edges": [...]} (no body fields)
-    bodies_json     : str  — JSON string {node_id: body_string, ...} loaded on-demand
-    project_name    : str  — display name for the project
-    node_count      : int  — total number of nodes in the graph
-    edge_count      : int  — total number of edges in the graph
-    generated_at    : str  — timestamp string
-    serve_mode      : bool — True when rendered by _server.py (enables NL query bar)
-    graphmy_version : str  — e.g. "0.1.1"
+  Template variables:
+    tree_json      : str   — slim tree nodes [{id,name,kind,file,line,is_async,children}]
+    detail_json    : str   — flat {node_id: {end_line?,children_summary?}} (static only; no sig/doc)
+    all_nodes_json : str   — flat [{id,name,kind,file,line}] for search
+    project_name   : str
+    node_count     : int
+    edge_count     : int
+    file_count     : int
+    generated_at   : str
+    graphmy_version: str
 
-  Performance strategy for large codebases:
-    - body fields are NOT inlined into the main graph data; loaded from BODY_DATA on click
-    - External nodes (kind=external) are hidden by default via a CSS class toggle
-    - Initial render shows only CONTAINS + DEFINES edges (structural skeleton)
-    - CALLS / IMPORTS / INHERITS / IMPLEMENTS edges toggled via toolbar buttons
-    - Graphs with >500 nodes default to the 'cose' (force-directed) layout;
-      dagre is offered as a manual switch but warned as slow for large graphs
+  Layout:
+    ┌──────────────────────────────────────────────┐
+    │  toolbar: title · stats · search             │
+    ├────────────────────┬─────────────────────────┤
+    │  tree panel        │  detail panel (on click) │
+    │  folder ▶          │  kind · location         │
+    │    file.py ▶       │  signature               │
+    │      class Foo ▶   │  docstring               │
+    │        def bar     │  contains summary        │
+    └────────────────────┴─────────────────────────┘
 #}
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>graphmy — {{ project_name }}</title>
-
-  {# Load cytoscape.js and cytoscape-dagre from CDN #}
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.28.1/cytoscape.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/dagre/0.8.5/dagre.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/cytoscape-dagre@2.5.0/cytoscape-dagre.js"></script>
-
   <style>
-    /* -----------------------------------------------------------------------
-       Reset & base
-    ----------------------------------------------------------------------- */
+    /* reset */
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #0f1117;
+      --bg2:       #1a1d2e;
+      --bg3:       #1e2235;
+      --border:    #2d3148;
+      --border2:   #3b4163;
+      --text:      #e2e8f0;
+      --text-dim:  #64748b;
+      --text-mid:  #94a3b8;
+      --purple:    #7c3aed;
+      --purple-lt: #a78bfa;
+      --blue:      #60a5fa;
+      --green:     #4ade80;
+      --green-lt:  #86efac;
+      --yellow:    #fbbf24;
+      --red:       #f87171;
+      --cyan:      #93c5fd;
+      --lime:      #a3e635;
+    }
+
     body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace;
-      background: #0f1117;
-      color: #e2e8f0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
       display: flex;
       flex-direction: column;
       height: 100vh;
       overflow: hidden;
+      font-size: 13px;
     }
 
-    /* -----------------------------------------------------------------------
-       Toolbar (top bar)
-    ----------------------------------------------------------------------- */
+    /* ---- toolbar ---- */
     #toolbar {
       display: flex;
       align-items: center;
-      gap: 8px;
-      padding: 7px 14px;
-      background: #1a1d2e;
-      border-bottom: 1px solid #2d3148;
+      gap: 10px;
+      padding: 8px 16px;
+      background: var(--bg2);
+      border-bottom: 1px solid var(--border);
       flex-shrink: 0;
-      flex-wrap: wrap;
     }
     #toolbar h1 {
       font-size: 13px;
-      font-weight: 600;
-      color: #a78bfa;
+      font-weight: 700;
+      color: var(--purple-lt);
       white-space: nowrap;
     }
-    #toolbar .stats {
+    .stats {
       font-size: 11px;
-      color: #64748b;
+      color: var(--text-dim);
       white-space: nowrap;
     }
+    .tb-sep { width: 1px; height: 18px; background: var(--border); flex-shrink: 0; }
+
     #search-box {
       flex: 1;
       min-width: 160px;
-      max-width: 320px;
-      padding: 4px 9px;
+      max-width: 340px;
+      padding: 5px 10px;
       border-radius: 6px;
-      border: 1px solid #3b4163;
-      background: #0f1117;
-      color: #e2e8f0;
+      border: 1px solid var(--border2);
+      background: var(--bg);
+      color: var(--text);
       font-size: 12px;
       outline: none;
     }
-    #search-box:focus { border-color: #7c3aed; }
-    #search-box::placeholder { color: #475569; }
+    #search-box:focus { border-color: var(--purple); }
+    #search-box::placeholder { color: var(--text-dim); }
 
-    /* NL query bar (only visible in serve mode) */
-    #nl-bar {
-      display: {% if serve_mode %}flex{% else %}none{% endif %};
-      align-items: center;
-      gap: 8px;
-      flex: 1;
-      min-width: 280px;
-    }
-    #nl-input {
-      flex: 1;
-      padding: 4px 9px;
-      border-radius: 6px;
-      border: 1px solid #3b4163;
-      background: #0f1117;
-      color: #e2e8f0;
-      font-size: 12px;
-      outline: none;
-    }
-    #nl-input:focus { border-color: #7c3aed; }
-    #nl-input::placeholder { color: #475569; }
-
-    button {
-      padding: 4px 11px;
-      border-radius: 6px;
-      border: none;
-      background: #7c3aed;
-      color: white;
-      font-size: 11px;
-      cursor: pointer;
-      white-space: nowrap;
-    }
-    button:hover { background: #6d28d9; }
-    button:disabled { background: #374151; cursor: not-allowed; }
-
-    /* Layout + edge toggle buttons */
     .tb-btn {
-      padding: 3px 9px;
-      background: #1e2235;
-      border: 1px solid #3b4163;
-      color: #94a3b8;
+      padding: 4px 10px;
+      background: var(--bg3);
+      border: 1px solid var(--border2);
+      color: var(--text-mid);
       font-size: 11px;
       border-radius: 5px;
       cursor: pointer;
+      white-space: nowrap;
     }
-    .tb-btn:hover { border-color: #7c3aed; color: #e2e8f0; background: #1e2235; }
-    .tb-btn.active { background: #3b1fa8; border-color: #7c3aed; color: white; }
+    .tb-btn:hover { border-color: var(--purple); color: var(--text); }
+    .tb-btn.active { background: #3b1fa8; border-color: var(--purple); color: #fff; }
 
-    /* Divider between toolbar button groups */
-    .tb-sep {
-      width: 1px;
-      height: 18px;
-      background: #2d3148;
-      flex-shrink: 0;
-    }
+    /* ---- main layout ---- */
+    #main { display: flex; flex: 1; overflow: hidden; }
 
-    /* -----------------------------------------------------------------------
-       Main canvas area
-    ----------------------------------------------------------------------- */
-    #main {
+    /* ---- tree panel ---- */
+    #tree-panel { flex: 1; overflow-y: auto; padding: 8px 0; min-width: 0; }
+    #tree-panel.hidden { display: none; }
+
+    /* ---- search results overlay ---- */
+    #search-results { display: none; flex: 1; overflow-y: auto; padding: 8px 12px; }
+    #search-results.visible { display: block; }
+
+    /* ---- tree nodes ---- */
+    .tree-item {
       display: flex;
-      flex: 1;
-      overflow: hidden;
+      align-items: center;
+      padding: 2px 0;
+      padding-left: calc(var(--depth,0) * 16px + 8px);
+      cursor: pointer;
+      user-select: none;
+      border-radius: 4px;
     }
-    #cy {
-      flex: 1;
-      background: #0f1117;
-      background-image: radial-gradient(circle, #1e2235 1px, transparent 1px);
-      background-size: 24px 24px;
-    }
+    .tree-item:hover { background: var(--bg3); }
+    .tree-item.selected { background: #2a1f5e; }
 
-    /* -----------------------------------------------------------------------
-       Detail panel (right sidebar)
-    ----------------------------------------------------------------------- */
+    .arrow {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 16px; height: 16px; flex-shrink: 0;
+      font-size: 9px; color: var(--text-dim);
+      transition: transform 0.12s ease;
+    }
+    .arrow.open { transform: rotate(90deg); }
+    .arrow.leaf { color: transparent; pointer-events: none; }
+
+    .kind-dot {
+      width: 7px; height: 7px; border-radius: 50%;
+      flex-shrink: 0; margin: 0 5px 0 2px;
+    }
+    .dot-folder    { background: var(--text-dim); }
+    .dot-file      { background: var(--blue); border-radius: 2px; }
+    .dot-class     { background: var(--purple-lt); }
+    .dot-function  { background: var(--green); }
+    .dot-method    { background: var(--green-lt); }
+    .dot-interface { background: var(--cyan); }
+    .dot-struct    { background: var(--yellow); }
+    .dot-enum      { background: var(--red); }
+    .dot-trait     { background: var(--lime); }
+    .dot-external  { background: var(--text-dim); opacity: 0.4; }
+
+    .node-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+    .node-label .node-name { color: var(--text); }
+    .node-label.folder-label .node-name { color: var(--text-mid); }
+    .node-label .node-suffix { font-size: 10px; color: var(--text-dim); margin-left: 4px; }
+    .async-badge { font-size: 9px; color: var(--yellow); margin-left: 4px; flex-shrink: 0; }
+
+    .tree-children { display: none; }
+    .tree-children.open { display: block; }
+
+    /* ---- detail panel ---- */
     #detail-panel {
-      width: 360px;
-      min-width: 280px;
-      max-width: 480px;
-      background: #1a1d2e;
-      border-left: 1px solid #2d3148;
-      display: flex;
-      flex-direction: column;
-      overflow: hidden;
-      transition: width 0.2s ease;
+      width: 380px; min-width: 280px; max-width: 520px;
+      background: var(--bg2);
+      border-left: 1px solid var(--border);
+      display: flex; flex-direction: column; overflow: hidden;
+      flex-shrink: 0;
+      transition: width 0.15s ease;
     }
     #detail-panel.collapsed { width: 0; min-width: 0; border: none; }
+
     #detail-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 9px 14px;
-      border-bottom: 1px solid #2d3148;
-      flex-shrink: 0;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 10px 16px; border-bottom: 1px solid var(--border); flex-shrink: 0;
     }
-    #detail-header h2 { font-size: 13px; font-weight: 600; color: #a78bfa; }
+    #detail-header h2 {
+      font-size: 13px; font-weight: 600; color: var(--purple-lt);
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
     #close-detail {
-      background: none;
-      border: none;
-      color: #64748b;
-      font-size: 16px;
-      cursor: pointer;
-      padding: 0;
+      background: none; border: none; color: var(--text-dim);
+      font-size: 18px; cursor: pointer; padding: 0; line-height: 1; flex-shrink: 0;
     }
-    #close-detail:hover { color: #e2e8f0; background: none; }
-    #detail-content {
-      flex: 1;
-      overflow-y: auto;
-      padding: 12px 14px;
-      font-size: 12px;
-      line-height: 1.6;
-    }
-    .detail-empty {
-      color: #475569;
-      font-style: italic;
-      margin-top: 20px;
-      text-align: center;
-    }
-    .detail-field { margin-bottom: 10px; }
-    .detail-label {
-      font-size: 10px;
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
-      color: #64748b;
-      margin-bottom: 2px;
-    }
-    .detail-value { color: #e2e8f0; word-break: break-all; }
-    .kind-badge {
-      display: inline-block;
-      padding: 2px 8px;
-      border-radius: 4px;
-      font-size: 11px;
-      font-weight: 600;
-    }
-    .badge-file       { background: #1e3a5f; color: #60a5fa; }
-    .badge-class      { background: #2d1b4e; color: #c084fc; }
-    .badge-function   { background: #1a3a2a; color: #4ade80; }
-    .badge-method     { background: #1a3a2a; color: #86efac; }
-    .badge-interface  { background: #1f2d4a; color: #93c5fd; }
-    .badge-struct     { background: #3a2a10; color: #fbbf24; }
-    .badge-enum       { background: #3a1010; color: #f87171; }
-    .badge-trait      { background: #2a3a10; color: #a3e635; }
-    .badge-external   { background: #1e1e1e; color: #94a3b8; }
+    #close-detail:hover { color: var(--text); }
+
+    #detail-content { flex: 1; overflow-y: auto; padding: 14px 16px; font-size: 12px; line-height: 1.6; }
+
+    .detail-empty { color: var(--text-dim); font-style: italic; text-align: center; margin-top: 40px; }
+    .detail-field { margin-bottom: 12px; }
+    .detail-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-dim); margin-bottom: 3px; }
+    .detail-value { color: var(--text); word-break: break-word; }
+
+    .kind-badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+    .badge-folder    { background: #1e2235; color: var(--text-mid); }
+    .badge-file      { background: #1e3a5f; color: var(--blue); }
+    .badge-class     { background: #2d1b4e; color: var(--purple-lt); }
+    .badge-function  { background: #1a3a2a; color: var(--green); }
+    .badge-method    { background: #1a3a2a; color: var(--green-lt); }
+    .badge-interface { background: #1f2d4a; color: var(--cyan); }
+    .badge-struct    { background: #3a2a10; color: var(--yellow); }
+    .badge-enum      { background: #3a1010; color: var(--red); }
+    .badge-trait     { background: #2a3a10; color: var(--lime); }
+    .badge-external  { background: #1e1e1e; color: var(--text-mid); }
 
     .detail-sig {
-      font-family: 'SF Mono', 'Fira Code', monospace;
-      font-size: 11px;
-      background: #0f1117;
-      padding: 6px 8px;
-      border-radius: 4px;
-      border-left: 3px solid #7c3aed;
-      word-break: break-all;
-      white-space: pre-wrap;
+      font-family: 'SF Mono','Fira Code','Cascadia Code',monospace;
+      font-size: 11px; background: var(--bg); padding: 7px 10px;
+      border-radius: 4px; border-left: 3px solid var(--purple);
+      white-space: pre-wrap; word-break: break-all;
     }
-    .detail-doc {
-      font-style: italic;
-      color: #94a3b8;
-      font-size: 11px;
-      line-height: 1.5;
-    }
-    .caller-callee-list { list-style: none; }
-    .caller-callee-list li {
-      font-size: 11px;
-      padding: 2px 0;
-      color: #a78bfa;
-      cursor: pointer;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-    .caller-callee-list li:hover { color: #c4b5fd; text-decoration: underline; }
+    .detail-doc { font-style: italic; color: var(--text-mid); font-size: 11px; line-height: 1.6; }
 
-    pre.source-preview {
-      font-family: 'SF Mono', 'Fira Code', monospace;
-      font-size: 10px;
-      line-height: 1.4;
-      background: #0a0d14;
-      padding: 8px;
-      border-radius: 4px;
-      overflow: auto;
-      max-height: 280px;
-      color: #94a3b8;
-      white-space: pre;
-      border: 1px solid #1e2235;
+    /* ---- search results ---- */
+    .search-result-item {
+      padding: 5px 8px; border-radius: 4px; cursor: pointer;
+      display: flex; align-items: center; gap: 6px;
     }
+    .search-result-item:hover { background: var(--bg3); }
+    .search-result-item .sr-name { font-size: 12px; color: var(--text); font-weight: 500; }
+    .search-result-item .sr-path { font-size: 10px; color: var(--text-dim); margin-left: 4px; }
+    .search-empty { color: var(--text-dim); font-style: italic; padding: 20px; text-align: center; }
 
-    /* -----------------------------------------------------------------------
-       Legend (bottom-left overlay)
-    ----------------------------------------------------------------------- */
-    #legend {
-      position: absolute;
-      bottom: 12px;
-      left: 12px;
-      background: rgba(26, 29, 46, 0.92);
-      border: 1px solid #2d3148;
-      border-radius: 8px;
-      padding: 8px 12px;
-      font-size: 11px;
-      pointer-events: none;
-    }
-    .legend-row { display: flex; align-items: center; gap: 6px; margin: 2px 0; }
-    .legend-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
-
-    /* -----------------------------------------------------------------------
-       Large-graph warning banner
-    ----------------------------------------------------------------------- */
-    #large-graph-warning {
-      display: none;
-      position: absolute;
-      top: 8px;
-      left: 50%;
-      transform: translateX(-50%);
-      background: #3a2a10;
-      border: 1px solid #fbbf24;
-      border-radius: 6px;
-      padding: 6px 16px;
-      font-size: 12px;
-      color: #fbbf24;
-      z-index: 50;
-      pointer-events: none;
-    }
-
-    /* -----------------------------------------------------------------------
-       NL explanation overlay
-    ----------------------------------------------------------------------- */
-    #nl-explanation {
-      display: none;
-      position: absolute;
-      top: 60px;
-      left: 50%;
-      transform: translateX(-50%);
-      max-width: 600px;
-      width: calc(100% - 40px);
-      background: #1a1d2e;
-      border: 1px solid #3b4163;
-      border-radius: 8px;
-      padding: 14px 18px;
-      font-size: 13px;
-      color: #e2e8f0;
-      z-index: 100;
-      box-shadow: 0 8px 32px rgba(0,0,0,0.5);
-    }
-    #nl-explanation .close-explain {
-      position: absolute; top: 8px; right: 12px;
-      background: none; border: none; color: #64748b;
-      font-size: 18px; cursor: pointer; padding: 0;
-    }
-    #nl-explanation .close-explain:hover { color: white; background: none; }
-    #nl-explanation p { line-height: 1.7; }
-
-    /* -----------------------------------------------------------------------
-       Loading spinner overlay
-    ----------------------------------------------------------------------- */
-    #loading {
-      display: none;
-      position: absolute;
-      inset: 0;
-      background: rgba(15, 17, 23, 0.7);
-      align-items: center;
-      justify-content: center;
-      z-index: 200;
-      font-size: 14px;
-      color: #a78bfa;
-    }
-    #loading.visible { display: flex; }
-
-    /* -----------------------------------------------------------------------
-       Scrollbar styling
-    ----------------------------------------------------------------------- */
-    ::-webkit-scrollbar { width: 6px; height: 6px; }
-    ::-webkit-scrollbar-track { background: #0f1117; }
-    ::-webkit-scrollbar-thumb { background: #2d3148; border-radius: 3px; }
-    ::-webkit-scrollbar-thumb:hover { background: #3b4163; }
+    /* ---- scrollbar ---- */
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
+    ::-webkit-scrollbar-track { background: var(--bg); }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--border2); }
   </style>
 </head>
 <body>
 
-<!-- =========================================================================
-     Toolbar
-========================================================================= -->
 <div id="toolbar">
   <h1>&#9670; graphmy &mdash; {{ project_name }}</h1>
-  <span class="stats">{{ node_count }} nodes &middot; {{ edge_count }} edges &middot; {{ generated_at }}</span>
-
+  <span class="stats">
+    {{ file_count }} files &middot; {{ node_count }} symbols &middot; {{ edge_count }} edges &middot; {{ generated_at }}
+  </span>
   <div class="tb-sep"></div>
-
-  <!-- Fuzzy search -->
-  <input id="search-box" type="text" placeholder="Filter by name&hellip;" autocomplete="off" />
-
+  <input id="search-box" type="text" placeholder="Search symbols&hellip;" autocomplete="off" />
   <div class="tb-sep"></div>
-
-  <!-- Layout toggles -->
-  <span style="font-size:10px;color:#64748b;white-space:nowrap">Layout:</span>
-  <button class="tb-btn" id="btn-dagre"  onclick="setLayout('dagre')">Hierarchy</button>
-  <button class="tb-btn" id="btn-cose"   onclick="setLayout('cose')">Force</button>
-  <button class="tb-btn" id="btn-circle" onclick="setLayout('circle')">Circle</button>
-
-  <div class="tb-sep"></div>
-
-  <!-- Edge type toggles -->
-  <span style="font-size:10px;color:#64748b;white-space:nowrap">Edges:</span>
-  <button class="tb-btn active" id="edge-CONTAINS"   onclick="toggleEdge('CONTAINS')">Contains</button>
-  <button class="tb-btn active" id="edge-DEFINES"    onclick="toggleEdge('DEFINES')">Defines</button>
-  <button class="tb-btn"        id="edge-CALLS"      onclick="toggleEdge('CALLS')">Calls</button>
-  <button class="tb-btn"        id="edge-IMPORTS"    onclick="toggleEdge('IMPORTS')">Imports</button>
-  <button class="tb-btn"        id="edge-INHERITS"   onclick="toggleEdge('INHERITS')">Inherits</button>
-  <button class="tb-btn"        id="edge-IMPLEMENTS" onclick="toggleEdge('IMPLEMENTS')">Implements</button>
-
-  <div class="tb-sep"></div>
-
-  <!-- External nodes toggle -->
-  <button class="tb-btn" id="btn-external" onclick="toggleExternal()">Show External</button>
-
-  <!-- NL query bar (only in --serve mode) -->
-  <div id="nl-bar">
-    <input id="nl-input" type="text" placeholder="Ask anything about the codebase&hellip;" autocomplete="off" />
-    <button id="nl-search-btn" onclick="runNLQuery()">Search</button>
-    {% if serve_mode %}
-    <button id="nl-explain-btn" onclick="runNLQuery(true)">Explain</button>
-    {% endif %}
-  </div>
+  <button class="tb-btn active" id="btn-expand-all"   onclick="expandAll()">Expand All</button>
+  <button class="tb-btn"        id="btn-collapse-all" onclick="collapseAll()">Collapse All</button>
 </div>
 
-<!-- =========================================================================
-     Main area: graph canvas + detail panel
-========================================================================= -->
 <div id="main">
-  <div id="cy"></div>
+  <div id="tree-panel"></div>
+  <div id="search-results"></div>
 
-  <!-- Detail panel (right sidebar) -->
   <div id="detail-panel" class="collapsed">
     <div id="detail-header">
       <h2 id="detail-title">Symbol detail</h2>
       <button id="close-detail" onclick="closeDetail()" title="Close">&times;</button>
     </div>
     <div id="detail-content">
-      <p class="detail-empty">Click a node to see details.</p>
+      <p class="detail-empty">Click any symbol to see details.</p>
     </div>
   </div>
 </div>
 
-<!-- Legend -->
-<div id="legend">
-  <div class="legend-row"><div class="legend-dot" style="background:#60a5fa"></div> file</div>
-  <div class="legend-row"><div class="legend-dot" style="background:#c084fc"></div> class</div>
-  <div class="legend-row"><div class="legend-dot" style="background:#4ade80"></div> function</div>
-  <div class="legend-row"><div class="legend-dot" style="background:#86efac"></div> method</div>
-  <div class="legend-row"><div class="legend-dot" style="background:#93c5fd"></div> interface</div>
-  <div class="legend-row"><div class="legend-dot" style="background:#fbbf24"></div> struct/enum</div>
-  <div class="legend-row"><div class="legend-dot" style="background:#94a3b8;border:1px dashed #475569"></div> external</div>
-</div>
+<!-- data blobs -->
+<script type="application/json" id="tree-data">{{ tree_json }}</script>
+<script type="application/json" id="detail-data">{{ detail_json }}</script>
+<script type="application/json" id="all-nodes-data">{{ all_nodes_json }}</script>
 
-<!-- Large graph warning (shown when >2000 nodes) -->
-<div id="large-graph-warning">
-  Large graph (&gt;2000 nodes) &mdash; use edge toggles and the search box to focus.
-</div>
-
-<!-- NL explanation overlay -->
-<div id="nl-explanation">
-  <button class="close-explain" onclick="closeExplanation()">&times;</button>
-  <p id="explanation-text"></p>
-</div>
-
-<!-- Loading overlay -->
-<div id="loading"><span>Rendering graph&hellip;</span></div>
-
-<!-- =========================================================================
-     Inline graph data (injected by Jinja2)
-     Split into two blobs:
-       graph-data : nodes (no body) + edges
-       body-data  : { node_id: body_string } loaded only on node click
-========================================================================= -->
-<script type="application/json" id="graph-data">
-{{ graph_data_json }}
-</script>
-<script type="application/json" id="body-data">
-{{ bodies_json }}
-</script>
-
-<!-- =========================================================================
-     Main script
-========================================================================= -->
 <script>
 "use strict";
 
-// ---------------------------------------------------------------------------
-// 1. Register cytoscape-dagre layout extension
-// ---------------------------------------------------------------------------
-if (typeof cytoscapeDagre !== 'undefined') {
-  cytoscape.use(cytoscapeDagre);
-}
+// ── 1. load data ──────────────────────────────────────────────────────────
+const TREE      = JSON.parse(document.getElementById('tree-data').textContent);
+const DETAIL    = JSON.parse(document.getElementById('detail-data').textContent);
+const ALL_NODES = JSON.parse(document.getElementById('all-nodes-data').textContent);
 
-// ---------------------------------------------------------------------------
-// 2. Load the graph data injected by Jinja2
-// ---------------------------------------------------------------------------
-const rawData  = JSON.parse(document.getElementById('graph-data').textContent);
-// BODY_DATA is a flat { node_id: body_string } map — loaded only when needed.
-const BODY_DATA = JSON.parse(document.getElementById('body-data').textContent);
-
-const TOTAL_NODES = rawData.nodes.length;
-const TOTAL_EDGES = rawData.edges.length;
-
-// Large graph threshold — above this, hide CALLS/IMPORTS edges by default
-// and switch to cose layout to avoid dagre OOM.
-const LARGE_GRAPH_THRESHOLD = 500;
-const isLarge = TOTAL_NODES > LARGE_GRAPH_THRESHOLD;
-
-// Edge kinds visible on initial load.
-// For large graphs we start with structural edges only (CONTAINS, DEFINES).
-// User can toggle others via the toolbar buttons.
-const visibleEdgeKinds = new Set(
-  isLarge
-    ? ['CONTAINS', 'DEFINES']
-    : ['CONTAINS', 'DEFINES', 'CALLS', 'IMPORTS', 'INHERITS', 'IMPLEMENTS']
-);
-
-// External nodes hidden by default (they add noise for large graphs).
-let showExternal = false;
-
-// ---------------------------------------------------------------------------
-// 3. Build the initial elements array respecting visibility rules
-// ---------------------------------------------------------------------------
-function buildElements() {
-  // Nodes: filter external nodes if showExternal is false.
-  const nodes = rawData.nodes.filter(n =>
-    showExternal || n.data.kind !== 'external'
-  );
-  const visibleNodeIds = new Set(nodes.map(n => n.data.id));
-
-  // Edges: filter by visible kind AND require both endpoints to be visible.
-  const edges = rawData.edges.filter(e =>
-    visibleEdgeKinds.has(e.data.kind) &&
-    visibleNodeIds.has(e.data.source) &&
-    visibleNodeIds.has(e.data.target)
-  );
-
-  return [...nodes, ...edges];
-}
-
-// ---------------------------------------------------------------------------
-// 4. Colour map by node kind
-// ---------------------------------------------------------------------------
-const KIND_COLORS = {
-  'file':       '#60a5fa',
-  'class':      '#c084fc',
-  'function':   '#4ade80',
-  'method':     '#86efac',
-  'interface':  '#93c5fd',
-  'struct':     '#fbbf24',
-  'enum':       '#f87171',
-  'trait':      '#a3e635',
-  'external':   '#475569',
-};
-
-// ---------------------------------------------------------------------------
-// 5. Cytoscape style sheet
-// ---------------------------------------------------------------------------
-const CY_STYLE = [
-  {
-    selector: 'node',
-    style: {
-      'label': 'data(label)',
-      'font-size': '10px',
-      'color': '#e2e8f0',
-      'text-valign': 'bottom',
-      'text-halign': 'center',
-      'text-margin-y': '4px',
-      'background-color': function(ele) {
-        return KIND_COLORS[ele.data('kind')] || '#475569';
-      },
-      'width': function(ele) {
-        const deg = ele.degree(false);
-        return Math.min(6 + deg * 1.5, 22);
-      },
-      'height': function(ele) {
-        const deg = ele.degree(false);
-        return Math.min(6 + deg * 1.5, 22);
-      },
-      'border-width': 0,
-      'transition-property': 'background-color, border-width, opacity',
-      'transition-duration': '0.15s',
-    }
-  },
-  {
-    selector: 'node.kind-file',
-    style: { 'shape': 'diamond', 'width': 14, 'height': 14 }
-  },
-  {
-    selector: 'node.kind-external',
-    style: {
-      'background-color': 'transparent',
-      'border-width': 1,
-      'border-style': 'dashed',
-      'border-color': '#475569',
-      'width': 8, 'height': 8,
-      'opacity': 0.5,
-    }
-  },
-  {
-    selector: 'node:selected',
-    style: {
-      'border-width': 2,
-      'border-color': '#a78bfa',
-      'background-color': function(ele) {
-        return KIND_COLORS[ele.data('kind')] || '#7c3aed';
-      },
-    }
-  },
-  {
-    selector: 'node.highlighted',
-    style: { 'border-width': 2, 'border-color': '#fbbf24', 'opacity': 1 }
-  },
-  {
-    selector: 'node.dimmed',
-    style: { 'opacity': 0.12 }
-  },
-  {
-    selector: 'edge',
-    style: {
-      'width': 1,
-      'line-color': '#2d3148',
-      'target-arrow-color': '#2d3148',
-      'target-arrow-shape': 'triangle',
-      'curve-style': 'bezier',
-      'opacity': 0.6,
-    }
-  },
-  {
-    selector: 'edge[kind = "CALLS"]',
-    style: { 'line-color': '#4ade80', 'target-arrow-color': '#4ade80', 'width': 1.5 }
-  },
-  {
-    selector: 'edge[kind = "IMPORTS"]',
-    style: { 'line-color': '#60a5fa', 'target-arrow-color': '#60a5fa', 'line-style': 'dashed' }
-  },
-  {
-    selector: 'edge[kind = "INHERITS"]',
-    style: { 'line-color': '#c084fc', 'target-arrow-color': '#c084fc', 'width': 2 }
-  },
-  {
-    selector: 'edge[kind = "IMPLEMENTS"]',
-    style: { 'line-color': '#93c5fd', 'target-arrow-color': '#93c5fd', 'line-style': 'dotted' }
-  },
-  {
-    selector: 'edge[kind = "DEFINES"]',
-    style: { 'line-color': '#334155', 'target-arrow-color': '#334155', 'opacity': 0.35 }
-  },
-  {
-    selector: 'edge[kind = "CONTAINS"]',
-    style: { 'line-color': '#334155', 'target-arrow-color': '#334155', 'opacity': 0.35 }
-  },
-  {
-    selector: 'edge:selected',
-    style: { 'line-color': '#a78bfa', 'target-arrow-color': '#a78bfa', 'width': 2 }
-  },
-];
-
-// ---------------------------------------------------------------------------
-// 6. Choose initial layout based on graph size
-// ---------------------------------------------------------------------------
-// dagre is fast for small graphs but can OOM / hang on dense large ones.
-// cose (force-directed) scales much better for thousands of nodes.
-const initialLayout = isLarge
-  ? { name: 'cose', idealEdgeLength: 80, nodeRepulsion: 4000, padding: 20, animate: false }
-  : { name: 'dagre', rankDir: 'TB', nodeSep: 30, rankSep: 60, padding: 20 };
-
-let currentLayout = isLarge ? 'cose' : 'dagre';
-
-// ---------------------------------------------------------------------------
-// 7. Initialise cytoscape
-// ---------------------------------------------------------------------------
-const cy = cytoscape({
-  container: document.getElementById('cy'),
-  elements: buildElements(),
-  style: CY_STYLE,
-  layout: initialLayout,
-  wheelSensitivity: 0.3,
-  // Disable labels on edges for performance
-  textureOnViewport: isLarge,
-  hideEdgesOnViewport: isLarge,
-});
-
-// Mark the active layout button
-document.getElementById('btn-' + currentLayout).classList.add('active');
-
-// Sync edge toggle button states for large graphs (CALLS/IMPORTS start off)
-if (isLarge) {
-  ['CALLS', 'IMPORTS', 'INHERITS', 'IMPLEMENTS'].forEach(k => {
-    const btn = document.getElementById('edge-' + k);
-    if (btn) btn.classList.remove('active');
-  });
-  document.getElementById('large-graph-warning').style.display = 'block';
-}
-
-// ---------------------------------------------------------------------------
-// 8. Node click → detail panel
-// ---------------------------------------------------------------------------
-cy.on('tap', 'node', function(evt) {
-  showDetail(evt.target.data(), evt.target.id());
-});
-
-cy.on('tap', function(evt) {
-  if (evt.target === cy) {
-    clearHighlights();
-    closeDetail();
+// id → slim tree node (for search navigation)
+const NODE_BY_ID = {};
+(function index(nodes) {
+  for (const n of nodes) {
+    NODE_BY_ID[n.id] = n;
+    if (n.children && n.children.length) index(n.children);
   }
-});
+})(TREE);
 
-// ---------------------------------------------------------------------------
-// 9. Detail panel
-// ---------------------------------------------------------------------------
-function showDetail(data, nodeId) {
+// ── 2. render tree ────────────────────────────────────────────────────────
+const treePanel = document.getElementById('tree-panel');
+
+function renderTree(nodes, depth, container) {
+  for (const node of nodes) {
+    const hasKids = node.children && node.children.length > 0;
+    const wrapper  = document.createElement('div');
+
+    const row = document.createElement('div');
+    row.className = 'tree-item';
+    row.style.setProperty('--depth', depth);
+    row.dataset.id   = node.id;
+    row.dataset.kind = node.kind;
+
+    // arrow
+    const arrow = document.createElement('span');
+    arrow.className = 'arrow' + (hasKids ? '' : ' leaf');
+    arrow.textContent = hasKids ? '▶' : '';
+    row.appendChild(arrow);
+
+    // dot
+    const dot = document.createElement('span');
+    dot.className = 'kind-dot dot-' + (node.kind || 'external');
+    row.appendChild(dot);
+
+    // label
+    const label = document.createElement('span');
+    label.className = 'node-label' + (node.kind === 'folder' ? ' folder-label' : '');
+
+    const nameSpan = document.createElement('span');
+    nameSpan.className = 'node-name';
+    nameSpan.textContent = node.name;
+    label.appendChild(nameSpan);
+
+    if (node.kind === 'file' && node.language) {
+      const suf = document.createElement('span');
+      suf.className = 'node-suffix';
+      suf.textContent = node.language;
+      label.appendChild(suf);
+    } else if ((node.kind === 'method' || node.kind === 'function') && node.line) {
+      const suf = document.createElement('span');
+      suf.className = 'node-suffix';
+      suf.textContent = ':' + node.line;
+      label.appendChild(suf);
+    }
+    row.appendChild(label);
+
+    if (node.is_async) {
+      const badge = document.createElement('span');
+      badge.className = 'async-badge';
+      badge.textContent = 'async';
+      row.appendChild(badge);
+    }
+
+    const childrenDiv = document.createElement('div');
+    childrenDiv.className = 'tree-children';
+
+    if (hasKids) {
+      row.addEventListener('click', function(e) {
+        const open = childrenDiv.classList.contains('open');
+        childrenDiv.classList.toggle('open', !open);
+        arrow.classList.toggle('open', !open);
+        selectNode(row, node);
+        e.stopPropagation();
+      });
+      renderTree(node.children, depth + 1, childrenDiv);
+    } else {
+      row.addEventListener('click', function(e) {
+        selectNode(row, node);
+        e.stopPropagation();
+      });
+    }
+
+    wrapper.appendChild(row);
+    wrapper.appendChild(childrenDiv);
+    container.appendChild(wrapper);
+  }
+}
+
+renderTree(TREE, 0, treePanel);
+
+// ── 3. selection + detail panel ───────────────────────────────────────────
+let selectedRow = null;
+
+function selectNode(row, node) {
+  if (selectedRow) selectedRow.classList.remove('selected');
+  row.classList.add('selected');
+  selectedRow = row;
+  showDetail(node);
+}
+
+function showDetail(node) {
   const panel   = document.getElementById('detail-panel');
   const content = document.getElementById('detail-content');
   const title   = document.getElementById('detail-title');
 
   panel.classList.remove('collapsed');
-  title.textContent = data.label || data.id;
+  title.textContent = node.name;
 
-  const badgeClass = 'badge-' + (data.kind || 'external');
-  const loc = data.line ? (data.file + ':' + data.line) : (data.file || '');
+  // Look up richer fields from DETAIL map.
+  const d = DETAIL[node.id] || {};
 
-  // Build caller / callee lists from CALLS edges currently loaded in cy.
-  const nodeEle = cy.getElementById(nodeId);
-  const callerItems = nodeEle.incomers('edge[kind = "CALLS"]').sources()
-    .map(n => '<li onclick="focusNode(\'' + escHtml(n.id()) + '\')" title="' + escHtml(n.id()) + '">' + escHtml(n.data('label')) + '</li>')
-    .join('');
-  const calleeItems = nodeEle.outgoers('edge[kind = "CALLS"]').targets()
-    .map(n => '<li onclick="focusNode(\'' + escHtml(n.id()) + '\')" title="' + escHtml(n.id()) + '">' + escHtml(n.data('label')) + '</li>')
-    .join('');
+  let html = '';
 
-  let html = '<div class="detail-field">'
-    + '<div class="detail-label">Kind</div>'
-    + '<div class="detail-value">'
-    + '<span class="kind-badge ' + badgeClass + '">' + escHtml(data.kind || 'unknown') + '</span>'
-    + (data.language ? '<span style="margin-left:6px;color:#64748b;font-size:11px">' + escHtml(data.language) + '</span>' : '')
-    + (data.is_async ? '<span style="margin-left:6px;color:#fbbf24;font-size:11px">async</span>' : '')
-    + '</div></div>';
+  // kind badge + language + async
+  html += '<div class="detail-field"><div class="detail-label">Kind</div>'
+        + '<div class="detail-value">'
+        + '<span class="kind-badge badge-' + esc(node.kind || 'external') + '">'
+        + esc(node.kind || 'unknown') + '</span>';
+  if (node.language) html += ' <span style="color:var(--text-dim);font-size:11px">' + esc(node.language) + '</span>';
+  if (node.is_async) html += ' <span style="color:var(--yellow);font-size:11px">async</span>';
+  html += '</div></div>';
 
+  // location (file:start–end)
+  const loc = node.line ? node.file + ':' + node.line + (d.end_line ? '–' + d.end_line : '') : node.file;
   if (loc) {
     html += '<div class="detail-field"><div class="detail-label">Location</div>'
-      + '<div class="detail-value" style="font-family:monospace;font-size:11px;color:#94a3b8">' + escHtml(loc) + '</div></div>';
+          + '<div class="detail-value" style="font-family:monospace;font-size:11px;color:var(--text-mid)">'
+          + esc(loc) + '</div></div>';
   }
 
-  if (data.signature) {
-    html += '<div class="detail-field"><div class="detail-label">Signature</div>'
-      + '<div class="detail-sig">' + escHtml(data.signature) + '</div></div>';
+  // contains summary (e.g. "3 methods, 1 function")
+  if (d.children_summary) {
+    html += '<div class="detail-field"><div class="detail-label">Contains</div>'
+          + '<div class="detail-value" style="color:var(--text-mid);font-size:11px">'
+          + esc(d.children_summary) + '</div></div>';
   }
 
-  if (data.docstring) {
-    html += '<div class="detail-field"><div class="detail-label">Docstring</div>'
-      + '<div class="detail-doc">' + escHtml(data.docstring) + '</div></div>';
-  }
-
-  if (data.decorators && data.decorators.length > 0) {
-    html += '<div class="detail-field"><div class="detail-label">Decorators</div>'
-      + '<div class="detail-value" style="font-family:monospace;font-size:11px;color:#fbbf24">'
-      + escHtml(data.decorators.join(', ')) + '</div></div>';
-  }
-
-  if (callerItems) {
-    html += '<div class="detail-field"><div class="detail-label">Called by</div>'
-      + '<ul class="caller-callee-list">' + callerItems + '</ul></div>';
-  }
-
-  if (calleeItems) {
-    html += '<div class="detail-field"><div class="detail-label">Calls</div>'
-      + '<ul class="caller-callee-list">' + calleeItems + '</ul></div>';
-  }
-
-  // Body: loaded on-demand from BODY_DATA — never part of the cy node payload.
-  const body = BODY_DATA[nodeId];
-  if (body && body.trim()) {
-    html += '<div class="detail-field"><div class="detail-label">Source preview</div>'
-      + '<pre class="source-preview">' + escHtml(body) + '</pre></div>';
-  }
+  // hint to use --serve for full detail
+  html += '<div style="margin-top:20px;font-size:10px;color:var(--text-dim)">'
+        + 'Run <code style="color:var(--purple-lt)">graphmy serve &lt;path&gt;</code> for signatures, docstrings &amp; source.'
+        + '</div>';
 
   content.innerHTML = html;
 }
 
 function closeDetail() {
   document.getElementById('detail-panel').classList.add('collapsed');
+  if (selectedRow) { selectedRow.classList.remove('selected'); selectedRow = null; }
 }
 
-function focusNode(nodeId) {
-  const ele = cy.getElementById(nodeId);
-  if (ele.length) {
-    cy.animate({ fit: { eles: ele, padding: 60 } }, { duration: 300 });
-    ele.select();
-    showDetail(ele.data(), nodeId);
-  }
+// ── 4. expand / collapse all ──────────────────────────────────────────────
+function expandAll() {
+  treePanel.querySelectorAll('.tree-children').forEach(el => el.classList.add('open'));
+  treePanel.querySelectorAll('.arrow:not(.leaf)').forEach(el => el.classList.add('open'));
+  document.getElementById('btn-expand-all').classList.add('active');
+  document.getElementById('btn-collapse-all').classList.remove('active');
+}
+function collapseAll() {
+  treePanel.querySelectorAll('.tree-children').forEach(el => el.classList.remove('open'));
+  treePanel.querySelectorAll('.arrow:not(.leaf)').forEach(el => el.classList.remove('open'));
+  document.getElementById('btn-collapse-all').classList.add('active');
+  document.getElementById('btn-expand-all').classList.remove('active');
 }
 
-// ---------------------------------------------------------------------------
-// 10. Fuzzy search (filter by name)
-// ---------------------------------------------------------------------------
-document.getElementById('search-box').addEventListener('input', function() {
-  const query = this.value.trim().toLowerCase();
-  if (!query) { clearHighlights(); return; }
-  const matches = cy.nodes().filter(n => n.data('label').toLowerCase().includes(query));
-  applyHighlight(matches);
+// ── 5. search ─────────────────────────────────────────────────────────────
+const searchBox     = document.getElementById('search-box');
+const searchResults = document.getElementById('search-results');
+
+searchBox.addEventListener('input', function() {
+  const q = this.value.trim().toLowerCase();
+  q ? runSearch(q) : clearSearch();
+});
+searchBox.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') { this.value = ''; clearSearch(); }
 });
 
-function applyHighlight(matchNodes) {
-  if (matchNodes.length === 0) { clearHighlights(); return; }
-  cy.nodes().addClass('dimmed').removeClass('highlighted');
-  cy.edges().style('opacity', 0.08);
-  matchNodes.removeClass('dimmed').addClass('highlighted');
-  matchNodes.neighborhood('node').removeClass('dimmed');
+function clearSearch() {
+  searchResults.innerHTML = '';
+  searchResults.classList.remove('visible');
+  treePanel.classList.remove('hidden');
 }
 
-function clearHighlights() {
-  cy.nodes().removeClass('dimmed').removeClass('highlighted');
-  cy.edges().style('opacity', 0.6);
-}
+function runSearch(q) {
+  const matches = ALL_NODES.filter(n =>
+    n.name.toLowerCase().includes(q) ||
+    (n.file && n.file.toLowerCase().includes(q))
+  ).slice(0, 100);
 
-// ---------------------------------------------------------------------------
-// 11. Edge type toggling
-// ---------------------------------------------------------------------------
-function toggleEdge(kind) {
-  const btn = document.getElementById('edge-' + kind);
-  if (visibleEdgeKinds.has(kind)) {
-    visibleEdgeKinds.delete(kind);
-    btn.classList.remove('active');
-  } else {
-    visibleEdgeKinds.add(kind);
-    btn.classList.add('active');
+  treePanel.classList.add('hidden');
+  searchResults.classList.add('visible');
+
+  if (!matches.length) {
+    searchResults.innerHTML = '<p class="search-empty">No symbols match "' + esc(q) + '"</p>';
+    return;
   }
-  refreshGraph();
+
+  const frag = document.createDocumentFragment();
+  if (matches.length === 100) {
+    const note = document.createElement('p');
+    note.style.cssText = 'font-size:10px;color:var(--text-dim);padding:4px 8px';
+    note.textContent = 'Showing first 100 — type more to narrow down.';
+    frag.appendChild(note);
+  }
+  for (const m of matches) {
+    const row = document.createElement('div');
+    row.className = 'search-result-item';
+    row.innerHTML =
+      '<span class="kind-dot dot-' + (m.kind||'external') + '"></span>'
+      + '<span class="sr-name">' + esc(m.name) + '</span>'
+      + '<span class="sr-path">' + esc(m.file || '') + (m.line ? ':' + m.line : '') + '</span>';
+    row.addEventListener('click', function() {
+      const node = NODE_BY_ID[m.id];
+      if (node) showDetail(node);
+      searchBox.value = '';
+      clearSearch();
+      revealInTree(m.id);
+    });
+    frag.appendChild(row);
+  }
+  searchResults.innerHTML = '';
+  searchResults.appendChild(frag);
 }
 
-// ---------------------------------------------------------------------------
-// 12. External node toggling
-// ---------------------------------------------------------------------------
-function toggleExternal() {
-  showExternal = !showExternal;
-  const btn = document.getElementById('btn-external');
-  btn.classList.toggle('active', showExternal);
-  btn.textContent = showExternal ? 'Hide External' : 'Show External';
-  refreshGraph();
-}
-
-// ---------------------------------------------------------------------------
-// 13. Re-render the graph after edge/node visibility changes
-// ---------------------------------------------------------------------------
-function refreshGraph() {
-  // Preserve viewport position so the user doesn't get disoriented.
-  const pan  = cy.pan();
-  const zoom = cy.zoom();
-
-  cy.elements().remove();
-  cy.add(buildElements());
-
-  // Restore viewport — don't re-run layout (that would move everything).
-  cy.pan(pan);
-  cy.zoom(zoom);
-}
-
-// ---------------------------------------------------------------------------
-// 14. Layout switching
-// ---------------------------------------------------------------------------
-function setLayout(name) {
-  currentLayout = name;
-  document.querySelectorAll('.tb-btn[id^="btn-dagre"], .tb-btn[id^="btn-cose"], .tb-btn[id^="btn-circle"]')
-    .forEach(b => b.classList.remove('active'));
-  const btn = document.getElementById('btn-' + name);
-  if (btn) btn.classList.add('active');
-
-  const opts =
-    name === 'dagre'
-      ? { name: 'dagre', rankDir: 'TB', nodeSep: 30, rankSep: 60, padding: 20 }
-    : name === 'cose'
-      ? { name: 'cose', idealEdgeLength: 80, nodeRepulsion: 4000, padding: 20, animate: false }
-    : { name: 'circle', padding: 20 };
-
-  cy.layout(opts).run();
-}
-
-// ---------------------------------------------------------------------------
-// 15. NL query (serve mode only — calls the FastAPI backend)
-// ---------------------------------------------------------------------------
-async function runNLQuery(explain) {
-  explain = !!explain;
-  const input = document.getElementById('nl-input');
-  const query = input.value.trim();
-  if (!query) return;
-
-  const loading = document.getElementById('loading');
-  loading.classList.add('visible');
-  document.getElementById('nl-search-btn').disabled = true;
-
-  try {
-    const url = '/api/query?q=' + encodeURIComponent(query) + '&limit=15&explain=' + explain;
-    const resp = await fetch(url);
-    if (!resp.ok) throw new Error('HTTP ' + resp.status);
-    const data = await resp.json();
-
-    const hitIds = (data.hits || []).map(h => h.node.node_id);
-    const matchNodes = cy.nodes().filter(n => hitIds.includes(n.id()));
-    applyHighlight(matchNodes);
-
-    if (data.explanation) {
-      document.getElementById('explanation-text').textContent = data.explanation;
-      document.getElementById('nl-explanation').style.display = 'block';
+function revealInTree(nodeId) {
+  const row = treePanel.querySelector('[data-id="' + CSS.escape(nodeId) + '"]');
+  if (!row) return;
+  let el = row.parentElement;
+  while (el && el !== treePanel) {
+    if (el.classList.contains('tree-children')) {
+      el.classList.add('open');
+      const prev = el.previousElementSibling;
+      if (prev) { const a = prev.querySelector('.arrow'); if (a) a.classList.add('open'); }
     }
-
-    if (matchNodes.length > 0) {
-      cy.animate({ fit: { eles: matchNodes, padding: 80 } }, { duration: 400 });
-    }
-  } catch (e) {
-    console.error('NL query error:', e);
-  } finally {
-    loading.classList.remove('visible');
-    document.getElementById('nl-search-btn').disabled = false;
+    el = el.parentElement;
   }
+  row.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  row.classList.add('selected');
+  selectedRow = row;
 }
 
-document.getElementById('nl-input').addEventListener('keydown', function(e) {
-  if (e.key === 'Enter') runNLQuery(false);
-});
-
-function closeExplanation() {
-  document.getElementById('nl-explanation').style.display = 'none';
+// ── 6. utility ────────────────────────────────────────────────────────────
+function esc(str) {
+  if (typeof str !== 'string') str = String(str ?? '');
+  return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+            .replace(/"/g,'&quot;').replace(/'/g,'&#039;');
 }
-
-// ---------------------------------------------------------------------------
-// 16. Utility: HTML escaping to prevent XSS in detail panel
-// ---------------------------------------------------------------------------
-function escHtml(str) {
-  if (typeof str !== 'string') str = String(str);
-  return str
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;');
-}
-
-// ---------------------------------------------------------------------------
-// 17. Hide loading overlay once cytoscape finishes initial layout
-// ---------------------------------------------------------------------------
-cy.ready(function() {
-  document.getElementById('loading').classList.remove('visible');
-});
-
-document.getElementById('loading').classList.add('visible');
 </script>
 </body>
 </html>

@@ -9,6 +9,23 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-03-19
+
+### Changed
+- **Static viz completely rewritten** — replaced the broken cytoscape graph
+  canvas with a clean, lightweight tree view (folder → file → class →
+  method/function).  No CDN dependencies, no graph library, zero external
+  requests.
+- HTML output drops from **45 MB → 3.5 MB** for large codebases (was
+  embedding all source bodies + 61 K edges; now embeds only slim tree nodes
+  + a minimal detail map).
+- Detail panel on click shows kind, location, and children summary.
+  Full detail (signatures, docstrings, source) is available via
+  `graphmy serve <path>` (future work).
+- Removed `serve_mode` parameter from `render_html` / `render_html_string`
+  (NL query bar is a serve-mode-only concept and is no longer in the static
+  template).
+
 ## [0.1.2] - 2026-03-19
 
 ### Fixed

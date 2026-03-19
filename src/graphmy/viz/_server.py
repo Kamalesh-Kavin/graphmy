@@ -90,7 +90,6 @@ def create_app(
         graph=graph,
         project_root=project_root,
         graphmy_version=graphmy_version,
-        serve_mode=True,
     )
 
     # Create the FastAPI app.
