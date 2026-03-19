@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "graphmy"
-version = "0.1.0"
+version = "0.1.1"
 description = "Parse any codebase, build a knowledge graph, visualise it, and query it in natural language."
 readme = "README.md"
 license = { text = "MIT" }
@@ -19,6 +19,7 @@ classifiers = [
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Software Development :: Libraries :: Python Modules",
     "Topic :: Utilities",
 ]
@@ -39,11 +40,12 @@ dependencies = [
     "networkx>=3.0",
     # Vector embeddings for natural-language queries (code-search fine-tuned)
     "sentence-transformers>=2.2",
-    # Embedded vector database — no server required
-    # chromadb>=0.5 requires onnxruntime>=1.24.3 which has no cp310 wheel;
-    # pin to 0.4.x (max 0.4.24) until onnxruntime ships cp310 wheels for 1.24+
-    "chromadb>=0.4,<0.5",
-    # onnxruntime 1.24+ has no cp310 wheels; cap at <1.24 for Python 3.10 compat
+    # Embedded vector database — no server required.
+    # chromadb 1.x dropped the np.float_ usage (NumPy 2.0 compat) and supports
+    # Python 3.13. chromadb's own dep on onnxruntime has no cp310 wheel in
+    # v1.24+, so we explicitly pin onnxruntime<1.24 for Python 3.10.
+    "chromadb>=1.0",
+    # onnxruntime 1.24+ has no cp310 wheels; keep <1.24 for Python 3.10.
     "onnxruntime>=1.14,<1.24; python_version < '3.11'",
     # CLI framework
     "click>=8.0",

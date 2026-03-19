@@ -34,7 +34,7 @@ from typing import Any
 # Package version — single source of truth
 # ---------------------------------------------------------------------------
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 # ---------------------------------------------------------------------------
 # Public re-exports from sub-modules
