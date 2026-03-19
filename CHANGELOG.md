@@ -9,6 +9,18 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-03-19
+
+### Fixed
+- Large-codebase visualisation: strip `body` text from the cytoscape JSON payload
+  (moved to a separate `<script id="body-data">` tag, fetched on-demand when a
+  node is clicked) — eliminates 40+ MB HTML files for large graphs
+- Initial render now shows only `CONTAINS` + `DEFINES` edges; toolbar buttons
+  toggle `CALLS`, `IMPORTS`, and `INHERITS`/`IMPLEMENTS` edge groups separately
+- External (stub) nodes hidden by default; toggled via "Show External" button
+- Auto-switch to `cose` layout when the rendered graph exceeds 500 nodes
+  (dagre hangs / OOMs on dense graphs)
+
 ## [0.1.1] - 2026-03-19
 
 ### Fixed

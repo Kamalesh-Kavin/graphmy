@@ -37,6 +37,25 @@ def export_cytoscape(graph: GraphStore) -> dict[str, Any]:
     """
     Convert the full GraphStore into a cytoscape.js-compatible JSON dict.
 
+    For performance on large graphs (thousands of nodes / tens-of-thousands of
+    edges) we split the export into three parts:
+
+    ``nodes``
+        Cytoscape node element dicts — all fields EXCEPT ``body``.
+        Body can be kilobytes per node; omitting it reduces the JSON payload
+        by ~10-100× for real codebases.
+
+    ``bodies``
+        A flat dict mapping ``node_id → body_string`` for nodes that have
+        source bodies.  The HTML template loads body text on-demand (when the
+        user clicks a node) rather than up-front.
+
+    ``edges``
+        Cytoscape edge element dicts — one entry per graph edge.
+
+    The returned dict can be JSON-serialised and passed directly to the
+    Jinja2 template.
+
     Parameters
     ----------
     graph : GraphStore
@@ -45,19 +64,18 @@ def export_cytoscape(graph: GraphStore) -> dict[str, Any]:
     Returns
     -------
     dict
-        A dict with two keys:
-          ``"nodes"`` — list of cytoscape node element dicts
-          ``"edges"`` — list of cytoscape edge element dicts
-
-    The returned dict can be JSON-serialised and passed directly to
-    ``cytoscape({ elements: ... })``.
+        Keys: ``"nodes"``, ``"bodies"``, ``"edges"``
     """
     cy_nodes: list[dict[str, Any]] = []
     cy_edges: list[dict[str, Any]] = []
+    # body lookup: node_id → source body string (only for nodes that have one)
+    bodies: dict[str, str] = {}
 
-    # Export all nodes.
+    # Export all nodes (body excluded from inline data).
     for node in graph.all_nodes():
         cy_nodes.append(_node_to_cy(node))
+        if node.body and node.body.strip():
+            bodies[node.node_id] = node.body
 
     # Export all edges. We generate a unique edge ID from source + target + kind
     # so the template can reference individual edges if needed.
@@ -80,7 +98,7 @@ def export_cytoscape(graph: GraphStore) -> dict[str, Any]:
             }
         )
 
-    return {"nodes": cy_nodes, "edges": cy_edges}
+    return {"nodes": cy_nodes, "bodies": bodies, "edges": cy_edges}
 
 
 def export_cytoscape_subgraph(
@@ -106,7 +124,7 @@ def export_cytoscape_subgraph(
     Returns
     -------
     dict
-        Same format as ``export_cytoscape()``.
+        Same format as ``export_cytoscape()`` — keys ``"nodes"``, ``"bodies"``, ``"edges"``.
     """
     g = graph.graph
 
@@ -126,10 +144,13 @@ def export_cytoscape_subgraph(
 
     # Build cytoscape elements only for the visited subset.
     cy_nodes: list[dict[str, Any]] = []
+    bodies: dict[str, str] = {}
     for nid in visited:
         node = graph.get_node(nid)
         if node:
             cy_nodes.append(_node_to_cy(node))
+            if node.body and node.body.strip():
+                bodies[node.node_id] = node.body
 
     cy_edges: list[dict[str, Any]] = []
     edge_id_counter: dict[str, int] = {}
@@ -152,7 +173,7 @@ def export_cytoscape_subgraph(
             }
         )
 
-    return {"nodes": cy_nodes, "edges": cy_edges}
+    return {"nodes": cy_nodes, "bodies": bodies, "edges": cy_edges}
 
 
 # ---------------------------------------------------------------------------
@@ -165,7 +186,9 @@ def _node_to_cy(node: Any) -> dict[str, Any]:
     Convert a SymbolNode to a cytoscape.js node element dict.
 
     The ``data`` object holds all fields we want accessible in the
-    detail panel and in cytoscape style selectors.
+    detail panel and in cytoscape style selectors, EXCEPT ``body``.
+    Body text is stored separately in the ``bodies`` dict and loaded
+    on-demand when a node is clicked to keep the initial payload small.
     """
     # Determine if this is a "ghost" node (added by networkx from an edge
     # reference but never given attributes). Ghost nodes have no kind.
@@ -185,9 +208,7 @@ def _node_to_cy(node: Any) -> dict[str, Any]:
             "qualified": node.qualified,
             "docstring": node.docstring,
             "signature": node.signature,
-            # Full body is included for the source preview in the detail panel.
-            # It may be large — the HTML template uses a <pre> with overflow: auto.
-            "body": node.body,
+            # body is intentionally omitted here — fetched from BODY_DATA on click
             "is_async": node.is_async,
             "decorators": node.decorators,
         },

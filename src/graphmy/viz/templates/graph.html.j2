@@ -5,22 +5,25 @@
   Self-contained HTML visualisation for a graphmy knowledge graph.
 
   This file is rendered by Jinja2 (_template.py) and produces a single
-  .html file with NO external dependencies — cytoscape.js and cytoscape-dagre
-  are inlined as CDN-loaded scripts (with a local fallback note).
+  .html file with NO external dependencies beyond CDN scripts.
 
   Template variables (all passed from _template.py):
-    graph_data     : dict  — {"nodes": [...], "edges": [...]} from _exporter.py
-    project_name   : str   — display name for the project (from project root basename)
-    node_count     : int   — total number of nodes in the graph
-    edge_count     : int   — total number of edges in the graph
-    generated_at   : str   — ISO timestamp of when the HTML was generated
-    serve_mode     : bool  — True when rendered by _server.py (enables NL query bar)
-    graphmy_version: str   — e.g. "0.1.0"
+    graph_data_json : str  — JSON string {"nodes": [...], "edges": [...]} (no body fields)
+    bodies_json     : str  — JSON string {node_id: body_string, ...} loaded on-demand
+    project_name    : str  — display name for the project
+    node_count      : int  — total number of nodes in the graph
+    edge_count      : int  — total number of edges in the graph
+    generated_at    : str  — timestamp string
+    serve_mode      : bool — True when rendered by _server.py (enables NL query bar)
+    graphmy_version : str  — e.g. "0.1.1"
 
-  Sections:
-    1. <head>   — meta, title, inline CSS
-    2. <body>   — toolbar, #cy canvas, detail panel (right sidebar)
-    3. <script> — cytoscape.js init, layout, style, click handlers
+  Performance strategy for large codebases:
+    - body fields are NOT inlined into the main graph data; loaded from BODY_DATA on click
+    - External nodes (kind=external) are hidden by default via a CSS class toggle
+    - Initial render shows only CONTAINS + DEFINES edges (structural skeleton)
+    - CALLS / IMPORTS / INHERITS / IMPLEMENTS edges toggled via toolbar buttons
+    - Graphs with >500 nodes default to the 'cose' (force-directed) layout;
+      dagre is offered as a manual switch but warned as slow for large graphs
 #}
 <html lang="en">
 <head>
@@ -28,10 +31,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>graphmy — {{ project_name }}</title>
 
-  {# -----------------------------------------------------------------------
-     Load cytoscape.js and cytoscape-dagre from CDN.
-     These are the only two external scripts. Everything else is inline.
-  ----------------------------------------------------------------------- #}
+  {# Load cytoscape.js and cytoscape-dagre from CDN #}
   <script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.28.1/cytoscape.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/dagre/0.8.5/dagre.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/cytoscape-dagre@2.5.0/cytoscape-dagre.js"></script>
@@ -57,34 +57,34 @@
     #toolbar {
       display: flex;
       align-items: center;
-      gap: 12px;
-      padding: 8px 16px;
+      gap: 8px;
+      padding: 7px 14px;
       background: #1a1d2e;
       border-bottom: 1px solid #2d3148;
       flex-shrink: 0;
       flex-wrap: wrap;
     }
     #toolbar h1 {
-      font-size: 14px;
+      font-size: 13px;
       font-weight: 600;
       color: #a78bfa;
       white-space: nowrap;
     }
     #toolbar .stats {
-      font-size: 12px;
+      font-size: 11px;
       color: #64748b;
       white-space: nowrap;
     }
     #search-box {
       flex: 1;
-      min-width: 200px;
-      max-width: 400px;
-      padding: 5px 10px;
+      min-width: 160px;
+      max-width: 320px;
+      padding: 4px 9px;
       border-radius: 6px;
       border: 1px solid #3b4163;
       background: #0f1117;
       color: #e2e8f0;
-      font-size: 13px;
+      font-size: 12px;
       outline: none;
     }
     #search-box:focus { border-color: #7c3aed; }
@@ -100,38 +100,50 @@
     }
     #nl-input {
       flex: 1;
-      padding: 5px 10px;
+      padding: 4px 9px;
       border-radius: 6px;
       border: 1px solid #3b4163;
       background: #0f1117;
       color: #e2e8f0;
-      font-size: 13px;
+      font-size: 12px;
       outline: none;
     }
     #nl-input:focus { border-color: #7c3aed; }
     #nl-input::placeholder { color: #475569; }
+
     button {
-      padding: 5px 12px;
+      padding: 4px 11px;
       border-radius: 6px;
       border: none;
       background: #7c3aed;
       color: white;
-      font-size: 12px;
+      font-size: 11px;
       cursor: pointer;
       white-space: nowrap;
     }
     button:hover { background: #6d28d9; }
     button:disabled { background: #374151; cursor: not-allowed; }
 
-    /* Layout toggle buttons */
-    .layout-btn {
-      padding: 4px 10px;
+    /* Layout + edge toggle buttons */
+    .tb-btn {
+      padding: 3px 9px;
       background: #1e2235;
       border: 1px solid #3b4163;
       color: #94a3b8;
       font-size: 11px;
+      border-radius: 5px;
+      cursor: pointer;
     }
-    .layout-btn.active { background: #3b1fa8; border-color: #7c3aed; color: white; }
+    .tb-btn:hover { border-color: #7c3aed; color: #e2e8f0; background: #1e2235; }
+    .tb-btn.active { background: #3b1fa8; border-color: #7c3aed; color: white; }
+
+    /* Divider between toolbar button groups */
+    .tb-sep {
+      width: 1px;
+      height: 18px;
+      background: #2d3148;
+      flex-shrink: 0;
+    }
 
     /* -----------------------------------------------------------------------
        Main canvas area
@@ -144,7 +156,6 @@
     #cy {
       flex: 1;
       background: #0f1117;
-      /* Subtle dot-grid background */
       background-image: radial-gradient(circle, #1e2235 1px, transparent 1px);
       background-size: 24px 24px;
     }
@@ -168,7 +179,7 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 10px 14px;
+      padding: 9px 14px;
       border-bottom: 1px solid #2d3148;
       flex-shrink: 0;
     }
@@ -211,7 +222,6 @@
       font-size: 11px;
       font-weight: 600;
     }
-    /* Kind-specific badge colors */
     .badge-file       { background: #1e3a5f; color: #60a5fa; }
     .badge-class      { background: #2d1b4e; color: #c084fc; }
     .badge-function   { background: #1a3a2a; color: #4ade80; }
@@ -271,7 +281,7 @@
       position: absolute;
       bottom: 12px;
       left: 12px;
-      background: rgba(26, 29, 46, 0.9);
+      background: rgba(26, 29, 46, 0.92);
       border: 1px solid #2d3148;
       border-radius: 8px;
       padding: 8px 12px;
@@ -279,10 +289,25 @@
       pointer-events: none;
     }
     .legend-row { display: flex; align-items: center; gap: 6px; margin: 2px 0; }
-    .legend-dot {
-      width: 10px; height: 10px;
-      border-radius: 50%;
-      flex-shrink: 0;
+    .legend-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+
+    /* -----------------------------------------------------------------------
+       Large-graph warning banner
+    ----------------------------------------------------------------------- */
+    #large-graph-warning {
+      display: none;
+      position: absolute;
+      top: 8px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #3a2a10;
+      border: 1px solid #fbbf24;
+      border-radius: 6px;
+      padding: 6px 16px;
+      font-size: 12px;
+      color: #fbbf24;
+      z-index: 50;
+      pointer-events: none;
     }
 
     /* -----------------------------------------------------------------------
@@ -306,15 +331,9 @@
       box-shadow: 0 8px 32px rgba(0,0,0,0.5);
     }
     #nl-explanation .close-explain {
-      position: absolute;
-      top: 8px;
-      right: 12px;
-      background: none;
-      border: none;
-      color: #64748b;
-      font-size: 18px;
-      cursor: pointer;
-      padding: 0;
+      position: absolute; top: 8px; right: 12px;
+      background: none; border: none; color: #64748b;
+      font-size: 18px; cursor: pointer; padding: 0;
     }
     #nl-explanation .close-explain:hover { color: white; background: none; }
     #nl-explanation p { line-height: 1.7; }
@@ -350,23 +369,44 @@
      Toolbar
 ========================================================================= -->
 <div id="toolbar">
-  <h1>&#9670; graphmy — {{ project_name }}</h1>
-  <span class="stats">{{ node_count }} nodes &middot; {{ edge_count }} edges &middot; generated {{ generated_at }}</span>
+  <h1>&#9670; graphmy &mdash; {{ project_name }}</h1>
+  <span class="stats">{{ node_count }} nodes &middot; {{ edge_count }} edges &middot; {{ generated_at }}</span>
 
-  <!-- Fuzzy search (filter nodes by name) -->
-  <input id="search-box" type="text" placeholder="Filter by name…" autocomplete="off" />
+  <div class="tb-sep"></div>
+
+  <!-- Fuzzy search -->
+  <input id="search-box" type="text" placeholder="Filter by name&hellip;" autocomplete="off" />
+
+  <div class="tb-sep"></div>
 
   <!-- Layout toggles -->
-  <button class="layout-btn active" id="btn-dagre"  onclick="setLayout('dagre')">Hierarchy</button>
-  <button class="layout-btn"        id="btn-cola"   onclick="setLayout('cose')">Force</button>
-  <button class="layout-btn"        id="btn-circle" onclick="setLayout('circle')">Circle</button>
+  <span style="font-size:10px;color:#64748b;white-space:nowrap">Layout:</span>
+  <button class="tb-btn" id="btn-dagre"  onclick="setLayout('dagre')">Hierarchy</button>
+  <button class="tb-btn" id="btn-cose"   onclick="setLayout('cose')">Force</button>
+  <button class="tb-btn" id="btn-circle" onclick="setLayout('circle')">Circle</button>
+
+  <div class="tb-sep"></div>
+
+  <!-- Edge type toggles -->
+  <span style="font-size:10px;color:#64748b;white-space:nowrap">Edges:</span>
+  <button class="tb-btn active" id="edge-CONTAINS"   onclick="toggleEdge('CONTAINS')">Contains</button>
+  <button class="tb-btn active" id="edge-DEFINES"    onclick="toggleEdge('DEFINES')">Defines</button>
+  <button class="tb-btn"        id="edge-CALLS"      onclick="toggleEdge('CALLS')">Calls</button>
+  <button class="tb-btn"        id="edge-IMPORTS"    onclick="toggleEdge('IMPORTS')">Imports</button>
+  <button class="tb-btn"        id="edge-INHERITS"   onclick="toggleEdge('INHERITS')">Inherits</button>
+  <button class="tb-btn"        id="edge-IMPLEMENTS" onclick="toggleEdge('IMPLEMENTS')">Implements</button>
+
+  <div class="tb-sep"></div>
+
+  <!-- External nodes toggle -->
+  <button class="tb-btn" id="btn-external" onclick="toggleExternal()">Show External</button>
 
   <!-- NL query bar (only in --serve mode) -->
   <div id="nl-bar">
-    <input id="nl-input" type="text" placeholder="Ask anything about the codebase…" autocomplete="off" />
+    <input id="nl-input" type="text" placeholder="Ask anything about the codebase&hellip;" autocomplete="off" />
     <button id="nl-search-btn" onclick="runNLQuery()">Search</button>
     {% if serve_mode %}
-    <button id="nl-explain-btn" onclick="runNLQuery(explain=true)">Explain</button>
+    <button id="nl-explain-btn" onclick="runNLQuery(true)">Explain</button>
     {% endif %}
   </div>
 </div>
@@ -377,7 +417,7 @@
 <div id="main">
   <div id="cy"></div>
 
-  <!-- Detail panel (right sidebar, shown on node click) -->
+  <!-- Detail panel (right sidebar) -->
   <div id="detail-panel" class="collapsed">
     <div id="detail-header">
       <h2 id="detail-title">Symbol detail</h2>
@@ -389,7 +429,7 @@
   </div>
 </div>
 
-<!-- Legend overlay -->
+<!-- Legend -->
 <div id="legend">
   <div class="legend-row"><div class="legend-dot" style="background:#60a5fa"></div> file</div>
   <div class="legend-row"><div class="legend-dot" style="background:#c084fc"></div> class</div>
@@ -397,7 +437,12 @@
   <div class="legend-row"><div class="legend-dot" style="background:#86efac"></div> method</div>
   <div class="legend-row"><div class="legend-dot" style="background:#93c5fd"></div> interface</div>
   <div class="legend-row"><div class="legend-dot" style="background:#fbbf24"></div> struct/enum</div>
-  <div class="legend-row"><div class="legend-dot" style="background:#94a3b8; border: 1px dashed #475569"></div> external</div>
+  <div class="legend-row"><div class="legend-dot" style="background:#94a3b8;border:1px dashed #475569"></div> external</div>
+</div>
+
+<!-- Large graph warning (shown when >2000 nodes) -->
+<div id="large-graph-warning">
+  Large graph (&gt;2000 nodes) &mdash; use edge toggles and the search box to focus.
 </div>
 
 <!-- NL explanation overlay -->
@@ -407,15 +452,19 @@
 </div>
 
 <!-- Loading overlay -->
-<div id="loading"><span>Loading&hellip;</span></div>
+<div id="loading"><span>Rendering graph&hellip;</span></div>
 
 <!-- =========================================================================
      Inline graph data (injected by Jinja2)
-     We use JSON.parse on a <script type="application/json"> to avoid
-     any issues with Jinja2 escaping of the graph data.
+     Split into two blobs:
+       graph-data : nodes (no body) + edges
+       body-data  : { node_id: body_string } loaded only on node click
 ========================================================================= -->
 <script type="application/json" id="graph-data">
 {{ graph_data_json }}
+</script>
+<script type="application/json" id="body-data">
+{{ bodies_json }}
 </script>
 
 <!-- =========================================================================
@@ -434,17 +483,52 @@ if (typeof cytoscapeDagre !== 'undefined') {
 // ---------------------------------------------------------------------------
 // 2. Load the graph data injected by Jinja2
 // ---------------------------------------------------------------------------
-const rawData = JSON.parse(document.getElementById('graph-data').textContent);
+const rawData  = JSON.parse(document.getElementById('graph-data').textContent);
+// BODY_DATA is a flat { node_id: body_string } map — loaded only when needed.
+const BODY_DATA = JSON.parse(document.getElementById('body-data').textContent);
 
-// cytoscape expects [{data: {...}}, ...] not [{...}, ...]
-// Our exporter already wraps each item in {data: ...} so rawData is ready.
-const elements = [
-  ...rawData.nodes,
-  ...rawData.edges,
-];
+const TOTAL_NODES = rawData.nodes.length;
+const TOTAL_EDGES = rawData.edges.length;
+
+// Large graph threshold — above this, hide CALLS/IMPORTS edges by default
+// and switch to cose layout to avoid dagre OOM.
+const LARGE_GRAPH_THRESHOLD = 500;
+const isLarge = TOTAL_NODES > LARGE_GRAPH_THRESHOLD;
+
+// Edge kinds visible on initial load.
+// For large graphs we start with structural edges only (CONTAINS, DEFINES).
+// User can toggle others via the toolbar buttons.
+const visibleEdgeKinds = new Set(
+  isLarge
+    ? ['CONTAINS', 'DEFINES']
+    : ['CONTAINS', 'DEFINES', 'CALLS', 'IMPORTS', 'INHERITS', 'IMPLEMENTS']
+);
+
+// External nodes hidden by default (they add noise for large graphs).
+let showExternal = false;
 
 // ---------------------------------------------------------------------------
-// 3. Colour map by node kind
+// 3. Build the initial elements array respecting visibility rules
+// ---------------------------------------------------------------------------
+function buildElements() {
+  // Nodes: filter external nodes if showExternal is false.
+  const nodes = rawData.nodes.filter(n =>
+    showExternal || n.data.kind !== 'external'
+  );
+  const visibleNodeIds = new Set(nodes.map(n => n.data.id));
+
+  // Edges: filter by visible kind AND require both endpoints to be visible.
+  const edges = rawData.edges.filter(e =>
+    visibleEdgeKinds.has(e.data.kind) &&
+    visibleNodeIds.has(e.data.source) &&
+    visibleNodeIds.has(e.data.target)
+  );
+
+  return [...nodes, ...edges];
+}
+
+// ---------------------------------------------------------------------------
+// 4. Colour map by node kind
 // ---------------------------------------------------------------------------
 const KIND_COLORS = {
   'file':       '#60a5fa',
@@ -459,7 +543,7 @@ const KIND_COLORS = {
 };
 
 // ---------------------------------------------------------------------------
-// 4. Cytoscape style sheet
+// 5. Cytoscape style sheet
 // ---------------------------------------------------------------------------
 const CY_STYLE = [
   {
@@ -475,13 +559,12 @@ const CY_STYLE = [
         return KIND_COLORS[ele.data('kind')] || '#475569';
       },
       'width': function(ele) {
-        // Scale node size by number of connections (capped).
         const deg = ele.degree(false);
-        return Math.min(6 + deg * 2, 24);
+        return Math.min(6 + deg * 1.5, 22);
       },
       'height': function(ele) {
         const deg = ele.degree(false);
-        return Math.min(6 + deg * 2, 24);
+        return Math.min(6 + deg * 1.5, 22);
       },
       'border-width': 0,
       'transition-property': 'background-color, border-width, opacity',
@@ -489,12 +572,10 @@ const CY_STYLE = [
     }
   },
   {
-    // FILE nodes are rendered as diamonds
     selector: 'node.kind-file',
     style: { 'shape': 'diamond', 'width': 14, 'height': 14 }
   },
   {
-    // External stubs are rendered as empty circles with a dashed border
     selector: 'node.kind-external',
     style: {
       'background-color': 'transparent',
@@ -502,11 +583,10 @@ const CY_STYLE = [
       'border-style': 'dashed',
       'border-color': '#475569',
       'width': 8, 'height': 8,
-      'opacity': 0.6,
+      'opacity': 0.5,
     }
   },
   {
-    // Selected node
     selector: 'node:selected',
     style: {
       'border-width': 2,
@@ -517,21 +597,14 @@ const CY_STYLE = [
     }
   },
   {
-    // Highlighted nodes (from search / NL query results)
     selector: 'node.highlighted',
-    style: {
-      'border-width': 2,
-      'border-color': '#fbbf24',
-      'opacity': 1,
-    }
+    style: { 'border-width': 2, 'border-color': '#fbbf24', 'opacity': 1 }
   },
   {
-    // Dimmed nodes (not in current search result set)
     selector: 'node.dimmed',
-    style: { 'opacity': 0.15 }
+    style: { 'opacity': 0.12 }
   },
   {
-    // Edge base style
     selector: 'edge',
     style: {
       'width': 1,
@@ -539,7 +612,7 @@ const CY_STYLE = [
       'target-arrow-color': '#2d3148',
       'target-arrow-shape': 'triangle',
       'curve-style': 'bezier',
-      'opacity': 0.7,
+      'opacity': 0.6,
     }
   },
   {
@@ -560,11 +633,11 @@ const CY_STYLE = [
   },
   {
     selector: 'edge[kind = "DEFINES"]',
-    style: { 'line-color': '#334155', 'target-arrow-color': '#334155', 'opacity': 0.3 }
+    style: { 'line-color': '#334155', 'target-arrow-color': '#334155', 'opacity': 0.35 }
   },
   {
     selector: 'edge[kind = "CONTAINS"]',
-    style: { 'line-color': '#334155', 'target-arrow-color': '#334155', 'opacity': 0.3 }
+    style: { 'line-color': '#334155', 'target-arrow-color': '#334155', 'opacity': 0.35 }
   },
   {
     selector: 'edge:selected',
@@ -573,127 +646,123 @@ const CY_STYLE = [
 ];
 
 // ---------------------------------------------------------------------------
-// 5. Initialise cytoscape
+// 6. Choose initial layout based on graph size
+// ---------------------------------------------------------------------------
+// dagre is fast for small graphs but can OOM / hang on dense large ones.
+// cose (force-directed) scales much better for thousands of nodes.
+const initialLayout = isLarge
+  ? { name: 'cose', idealEdgeLength: 80, nodeRepulsion: 4000, padding: 20, animate: false }
+  : { name: 'dagre', rankDir: 'TB', nodeSep: 30, rankSep: 60, padding: 20 };
+
+let currentLayout = isLarge ? 'cose' : 'dagre';
+
+// ---------------------------------------------------------------------------
+// 7. Initialise cytoscape
 // ---------------------------------------------------------------------------
 const cy = cytoscape({
   container: document.getElementById('cy'),
-  elements: elements,
+  elements: buildElements(),
   style: CY_STYLE,
-  layout: {
-    name: 'dagre',
-    rankDir: 'TB',       // top-to-bottom for file → function hierarchy
-    nodeSep: 30,
-    rankSep: 60,
-    edgeSep: 10,
-    padding: 20,
-  },
+  layout: initialLayout,
   wheelSensitivity: 0.3,
+  // Disable labels on edges for performance
+  textureOnViewport: isLarge,
+  hideEdgesOnViewport: isLarge,
 });
 
+// Mark the active layout button
+document.getElementById('btn-' + currentLayout).classList.add('active');
+
+// Sync edge toggle button states for large graphs (CALLS/IMPORTS start off)
+if (isLarge) {
+  ['CALLS', 'IMPORTS', 'INHERITS', 'IMPLEMENTS'].forEach(k => {
+    const btn = document.getElementById('edge-' + k);
+    if (btn) btn.classList.remove('active');
+  });
+  document.getElementById('large-graph-warning').style.display = 'block';
+}
+
 // ---------------------------------------------------------------------------
-// 6. Node click → detail panel
+// 8. Node click → detail panel
 // ---------------------------------------------------------------------------
 cy.on('tap', 'node', function(evt) {
-  const node = evt.target;
-  showDetail(node.data());
+  showDetail(evt.target.data(), evt.target.id());
 });
 
 cy.on('tap', function(evt) {
   if (evt.target === cy) {
-    // Tap on background: deselect and close detail
     clearHighlights();
     closeDetail();
   }
 });
 
 // ---------------------------------------------------------------------------
-// 7. Detail panel
+// 9. Detail panel
 // ---------------------------------------------------------------------------
-function showDetail(data) {
-  const panel = document.getElementById('detail-panel');
+function showDetail(data, nodeId) {
+  const panel   = document.getElementById('detail-panel');
   const content = document.getElementById('detail-content');
-  const title = document.getElementById('detail-title');
+  const title   = document.getElementById('detail-title');
 
   panel.classList.remove('collapsed');
   title.textContent = data.label || data.id;
 
-  const badgeClass = `badge-${data.kind || 'external'}`;
-  const loc = data.line ? `${data.file}:${data.line}` : data.file || '';
+  const badgeClass = 'badge-' + (data.kind || 'external');
+  const loc = data.line ? (data.file + ':' + data.line) : (data.file || '');
 
-  // Find callers and callees from the graph
-  const nodeEle = cy.getElementById(data.id);
-  const callerNodes = nodeEle.incomers('node[kind != "file"]').filter(n => {
-    return nodeEle.incomers('edge[kind = "CALLS"]').connectedNodes().has(n);
-  });
-  const calleeNodes = nodeEle.outgoers('node').filter(n => {
-    return nodeEle.outgoers('edge[kind = "CALLS"]').connectedNodes().has(n);
-  });
-
-  // Build caller/callee lists by looking at CALLS edges specifically
+  // Build caller / callee lists from CALLS edges currently loaded in cy.
+  const nodeEle = cy.getElementById(nodeId);
   const callerItems = nodeEle.incomers('edge[kind = "CALLS"]').sources()
-    .map(n => `<li onclick="focusNode('${escHtml(n.id())}')" title="${escHtml(n.id())}">${escHtml(n.data('label'))}</li>`)
+    .map(n => '<li onclick="focusNode(\'' + escHtml(n.id()) + '\')" title="' + escHtml(n.id()) + '">' + escHtml(n.data('label')) + '</li>')
     .join('');
   const calleeItems = nodeEle.outgoers('edge[kind = "CALLS"]').targets()
-    .map(n => `<li onclick="focusNode('${escHtml(n.id())}')" title="${escHtml(n.id())}">${escHtml(n.data('label'))}</li>`)
+    .map(n => '<li onclick="focusNode(\'' + escHtml(n.id()) + '\')" title="' + escHtml(n.id()) + '">' + escHtml(n.data('label')) + '</li>')
     .join('');
 
-  let html = `
-    <div class="detail-field">
-      <div class="detail-label">Kind</div>
-      <div class="detail-value">
-        <span class="kind-badge ${badgeClass}">${escHtml(data.kind || 'unknown')}</span>
-        ${data.language ? `<span style="margin-left:6px;color:#64748b;font-size:11px">${escHtml(data.language)}</span>` : ''}
-        ${data.is_async ? `<span style="margin-left:6px;color:#fbbf24;font-size:11px">async</span>` : ''}
-      </div>
-    </div>`;
+  let html = '<div class="detail-field">'
+    + '<div class="detail-label">Kind</div>'
+    + '<div class="detail-value">'
+    + '<span class="kind-badge ' + badgeClass + '">' + escHtml(data.kind || 'unknown') + '</span>'
+    + (data.language ? '<span style="margin-left:6px;color:#64748b;font-size:11px">' + escHtml(data.language) + '</span>' : '')
+    + (data.is_async ? '<span style="margin-left:6px;color:#fbbf24;font-size:11px">async</span>' : '')
+    + '</div></div>';
 
   if (loc) {
-    html += `<div class="detail-field">
-      <div class="detail-label">Location</div>
-      <div class="detail-value" style="font-family:monospace;font-size:11px;color:#94a3b8">${escHtml(loc)}</div>
-    </div>`;
+    html += '<div class="detail-field"><div class="detail-label">Location</div>'
+      + '<div class="detail-value" style="font-family:monospace;font-size:11px;color:#94a3b8">' + escHtml(loc) + '</div></div>';
   }
 
   if (data.signature) {
-    html += `<div class="detail-field">
-      <div class="detail-label">Signature</div>
-      <div class="detail-sig">${escHtml(data.signature)}</div>
-    </div>`;
+    html += '<div class="detail-field"><div class="detail-label">Signature</div>'
+      + '<div class="detail-sig">' + escHtml(data.signature) + '</div></div>';
   }
 
   if (data.docstring) {
-    html += `<div class="detail-field">
-      <div class="detail-label">Docstring</div>
-      <div class="detail-doc">${escHtml(data.docstring)}</div>
-    </div>`;
+    html += '<div class="detail-field"><div class="detail-label">Docstring</div>'
+      + '<div class="detail-doc">' + escHtml(data.docstring) + '</div></div>';
   }
 
   if (data.decorators && data.decorators.length > 0) {
-    html += `<div class="detail-field">
-      <div class="detail-label">Decorators</div>
-      <div class="detail-value" style="font-family:monospace;font-size:11px;color:#fbbf24">${escHtml(data.decorators.join(', '))}</div>
-    </div>`;
+    html += '<div class="detail-field"><div class="detail-label">Decorators</div>'
+      + '<div class="detail-value" style="font-family:monospace;font-size:11px;color:#fbbf24">'
+      + escHtml(data.decorators.join(', ')) + '</div></div>';
   }
 
   if (callerItems) {
-    html += `<div class="detail-field">
-      <div class="detail-label">Called by</div>
-      <ul class="caller-callee-list">${callerItems}</ul>
-    </div>`;
+    html += '<div class="detail-field"><div class="detail-label">Called by</div>'
+      + '<ul class="caller-callee-list">' + callerItems + '</ul></div>';
   }
 
   if (calleeItems) {
-    html += `<div class="detail-field">
-      <div class="detail-label">Calls</div>
-      <ul class="caller-callee-list">${calleeItems}</ul>
-    </div>`;
+    html += '<div class="detail-field"><div class="detail-label">Calls</div>'
+      + '<ul class="caller-callee-list">' + calleeItems + '</ul></div>';
   }
 
-  if (data.body && data.body.trim()) {
-    html += `<div class="detail-field">
-      <div class="detail-label">Source preview</div>
-      <pre class="source-preview">${escHtml(data.body)}</pre>
-    </div>`;
+  // Body: loaded on-demand from BODY_DATA — never part of the cy node payload.
+  const body = BODY_DATA[nodeId];
+  if (body && body.trim()) {
+    html += '<div class="detail-field"><div class="detail-label">Source preview</div>'
+      + '<pre class="source-preview">' + escHtml(body) + '</pre></div>';
   }
 
   content.innerHTML = html;
@@ -708,66 +777,100 @@ function focusNode(nodeId) {
   if (ele.length) {
     cy.animate({ fit: { eles: ele, padding: 60 } }, { duration: 300 });
     ele.select();
-    showDetail(ele.data());
+    showDetail(ele.data(), nodeId);
   }
 }
 
 // ---------------------------------------------------------------------------
-// 8. Fuzzy search (filter by name)
+// 10. Fuzzy search (filter by name)
 // ---------------------------------------------------------------------------
 document.getElementById('search-box').addEventListener('input', function() {
   const query = this.value.trim().toLowerCase();
-  if (!query) {
-    clearHighlights();
-    return;
-  }
+  if (!query) { clearHighlights(); return; }
   const matches = cy.nodes().filter(n => n.data('label').toLowerCase().includes(query));
   applyHighlight(matches);
 });
 
 function applyHighlight(matchNodes) {
-  if (matchNodes.length === 0) {
-    clearHighlights();
-    return;
-  }
+  if (matchNodes.length === 0) { clearHighlights(); return; }
   cy.nodes().addClass('dimmed').removeClass('highlighted');
-  cy.edges().style('opacity', 0.1);
+  cy.edges().style('opacity', 0.08);
   matchNodes.removeClass('dimmed').addClass('highlighted');
-  // Also show immediate neighbours
   matchNodes.neighborhood('node').removeClass('dimmed');
 }
 
 function clearHighlights() {
   cy.nodes().removeClass('dimmed').removeClass('highlighted');
-  cy.edges().style('opacity', 0.7);
+  cy.edges().style('opacity', 0.6);
 }
 
 // ---------------------------------------------------------------------------
-// 9. Layout switching
+// 11. Edge type toggling
 // ---------------------------------------------------------------------------
-let currentLayout = 'dagre';
+function toggleEdge(kind) {
+  const btn = document.getElementById('edge-' + kind);
+  if (visibleEdgeKinds.has(kind)) {
+    visibleEdgeKinds.delete(kind);
+    btn.classList.remove('active');
+  } else {
+    visibleEdgeKinds.add(kind);
+    btn.classList.add('active');
+  }
+  refreshGraph();
+}
 
+// ---------------------------------------------------------------------------
+// 12. External node toggling
+// ---------------------------------------------------------------------------
+function toggleExternal() {
+  showExternal = !showExternal;
+  const btn = document.getElementById('btn-external');
+  btn.classList.toggle('active', showExternal);
+  btn.textContent = showExternal ? 'Hide External' : 'Show External';
+  refreshGraph();
+}
+
+// ---------------------------------------------------------------------------
+// 13. Re-render the graph after edge/node visibility changes
+// ---------------------------------------------------------------------------
+function refreshGraph() {
+  // Preserve viewport position so the user doesn't get disoriented.
+  const pan  = cy.pan();
+  const zoom = cy.zoom();
+
+  cy.elements().remove();
+  cy.add(buildElements());
+
+  // Restore viewport — don't re-run layout (that would move everything).
+  cy.pan(pan);
+  cy.zoom(zoom);
+}
+
+// ---------------------------------------------------------------------------
+// 14. Layout switching
+// ---------------------------------------------------------------------------
 function setLayout(name) {
   currentLayout = name;
-  // Update active button
-  document.querySelectorAll('.layout-btn').forEach(b => b.classList.remove('active'));
-  const btnMap = { dagre: 'btn-dagre', cose: 'btn-cola', circle: 'btn-circle' };
-  const btnId = btnMap[name];
-  if (btnId) document.getElementById(btnId).classList.add('active');
+  document.querySelectorAll('.tb-btn[id^="btn-dagre"], .tb-btn[id^="btn-cose"], .tb-btn[id^="btn-circle"]')
+    .forEach(b => b.classList.remove('active'));
+  const btn = document.getElementById('btn-' + name);
+  if (btn) btn.classList.add('active');
 
-  const opts = name === 'dagre'
-    ? { name: 'dagre', rankDir: 'TB', nodeSep: 30, rankSep: 60, padding: 20 }
+  const opts =
+    name === 'dagre'
+      ? { name: 'dagre', rankDir: 'TB', nodeSep: 30, rankSep: 60, padding: 20 }
     : name === 'cose'
-    ? { name: 'cose', idealEdgeLength: 100, nodeRepulsion: 4500, padding: 20 }
+      ? { name: 'cose', idealEdgeLength: 80, nodeRepulsion: 4000, padding: 20, animate: false }
     : { name: 'circle', padding: 20 };
 
   cy.layout(opts).run();
 }
 
 // ---------------------------------------------------------------------------
-// 10. NL query (serve mode only — calls the FastAPI backend)
+// 15. NL query (serve mode only — calls the FastAPI backend)
 // ---------------------------------------------------------------------------
-async function runNLQuery(explain = false) {
+async function runNLQuery(explain) {
+  explain = !!explain;
   const input = document.getElementById('nl-input');
   const query = input.value.trim();
   if (!query) return;
@@ -777,23 +880,20 @@ async function runNLQuery(explain = false) {
   document.getElementById('nl-search-btn').disabled = true;
 
   try {
-    const url = `/api/query?q=${encodeURIComponent(query)}&limit=15&explain=${explain}`;
+    const url = '/api/query?q=' + encodeURIComponent(query) + '&limit=15&explain=' + explain;
     const resp = await fetch(url);
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
     const data = await resp.json();
 
-    // Highlight matching nodes in the graph
     const hitIds = (data.hits || []).map(h => h.node.node_id);
     const matchNodes = cy.nodes().filter(n => hitIds.includes(n.id()));
     applyHighlight(matchNodes);
 
-    // Show explanation if present
     if (data.explanation) {
       document.getElementById('explanation-text').textContent = data.explanation;
       document.getElementById('nl-explanation').style.display = 'block';
     }
 
-    // Fit to matching nodes
     if (matchNodes.length > 0) {
       cy.animate({ fit: { eles: matchNodes, padding: 80 } }, { duration: 400 });
     }
@@ -805,9 +905,8 @@ async function runNLQuery(explain = false) {
   }
 }
 
-// Also run NL query on Enter in the input
 document.getElementById('nl-input').addEventListener('keydown', function(e) {
-  if (e.key === 'Enter') runNLQuery();
+  if (e.key === 'Enter') runNLQuery(false);
 });
 
 function closeExplanation() {
@@ -815,7 +914,7 @@ function closeExplanation() {
 }
 
 // ---------------------------------------------------------------------------
-// 11. Utility: HTML escaping to prevent XSS in detail panel
+// 16. Utility: HTML escaping to prevent XSS in detail panel
 // ---------------------------------------------------------------------------
 function escHtml(str) {
   if (typeof str !== 'string') str = String(str);
@@ -828,13 +927,12 @@ function escHtml(str) {
 }
 
 // ---------------------------------------------------------------------------
-// 12. Hide the loading overlay once cytoscape finishes layout
+// 17. Hide loading overlay once cytoscape finishes initial layout
 // ---------------------------------------------------------------------------
 cy.ready(function() {
   document.getElementById('loading').classList.remove('visible');
 });
 
-// Show loading while initial layout is computed
 document.getElementById('loading').classList.add('visible');
 </script>
 </body>
