@@ -352,7 +352,7 @@ class Indexer:
         if not self.cache.file_hashes_json.exists():
             return {}
         try:
-            return json.loads(self.cache.file_hashes_json.read_text(encoding="utf-8"))
+            return json.loads(self.cache.file_hashes_json.read_text(encoding="utf-8"))  # type: ignore[no-any-return]
         except (json.JSONDecodeError, OSError):
             return {}
 

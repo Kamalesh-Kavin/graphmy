@@ -67,7 +67,8 @@ def render_html(
     """
     output_path = output_path.resolve()
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    html = _render_template(graph, project_root, graphmy_version)
+    # Static file export never needs the NL query bar.
+    html = _render_template(graph, project_root, graphmy_version, nl_enabled=False)
     output_path.write_text(html, encoding="utf-8")
     return output_path
 
@@ -76,12 +77,23 @@ def render_html_string(
     graph: GraphStore,
     project_root: Path,
     graphmy_version: str = "0.1.0",
+    nl_enabled: bool = False,
 ) -> str:
     """
     Render the graph as an HTML string without writing to disk.
     Used by the FastAPI server (serve mode).
+
+    Parameters
+    ----------
+    graph : GraphStore
+    project_root : Path
+    graphmy_version : str
+    nl_enabled : bool
+        When True the template is told to render the NL query bar and results
+        panel (wired up to ``/api/query``).  Currently passed through to the
+        template context; the bar UI is implemented in a future release.
     """
-    return _render_template(graph, project_root, graphmy_version)
+    return _render_template(graph, project_root, graphmy_version, nl_enabled=nl_enabled)
 
 
 # ---------------------------------------------------------------------------
@@ -93,7 +105,20 @@ def _render_template(
     graph: GraphStore,
     project_root: Path,
     graphmy_version: str,
+    nl_enabled: bool = False,
 ) -> str:
+    """
+    Internal renderer shared by ``render_html`` and ``render_html_string``.
+
+    Parameters
+    ----------
+    graph : GraphStore
+    project_root : Path
+    graphmy_version : str
+    nl_enabled : bool
+        Passed to the Jinja template as ``nl_enabled`` so it can conditionally
+        render the NL query bar.  Defaults to ``False`` (static export).
+    """
     templates_dir = Path(__file__).parent / "templates"
 
     env = Environment(
@@ -119,4 +144,5 @@ def _render_template(
         file_count=data["stats"]["file_count"],
         generated_at=datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
         graphmy_version=graphmy_version,
+        nl_enabled=nl_enabled,
     )

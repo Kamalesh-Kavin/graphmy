@@ -323,7 +323,7 @@ class JavaParser(LanguageParser):
         start_line = node.start_point[0]
         if start_line == 0:
             return ""
-        lines = []
+        lines: list[str] = []
         for i in range(start_line - 1, -1, -1):
             stripped = source_lines[i].strip()
             lines.insert(0, stripped)

@@ -283,7 +283,7 @@ class GoParser(LanguageParser):
         Go doc comments are // single-line comments directly above declarations.
         """
         start_line = node.start_point[0]  # 0-indexed
-        comment_lines = []
+        comment_lines: list[str] = []
         for i in range(start_line - 1, -1, -1):
             stripped = source_lines[i].strip()
             if stripped.startswith("//"):

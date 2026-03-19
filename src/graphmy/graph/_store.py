@@ -48,7 +48,8 @@ class GraphStore:
     def __init__(self, project_root: Path | None = None) -> None:
         # MultiDiGraph: directed, allows parallel edges (different edge kinds
         # between the same pair of nodes).
-        self._g: nx.MultiDiGraph = nx.MultiDiGraph()
+        self._g: nx.MultiDiGraph  # type: ignore[type-arg]
+        self._g = nx.MultiDiGraph()
 
         # Separate mapping from file path → set of node_ids defined in that file.
         # Maintained in sync with the graph so we can efficiently remove all
@@ -297,6 +298,6 @@ class GraphStore:
     # ------------------------------------------------------------------
 
     @property
-    def graph(self) -> nx.MultiDiGraph:
+    def graph(self) -> nx.MultiDiGraph:  # type: ignore[type-arg]
         """Direct access to the underlying networkx graph. Use with care."""
         return self._g
