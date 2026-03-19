@@ -182,7 +182,7 @@ class VectorStore:
 
     def count(self) -> int:
         """Return the total number of embeddings stored."""
-        return self._get_collection().count()
+        return self._get_collection().count()  # type: ignore[no-any-return]
 
     # ------------------------------------------------------------------
     # Internal helpers

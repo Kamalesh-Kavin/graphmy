@@ -4,13 +4,15 @@ graphmy/viz/_server.py
 FastAPI server for ``graphmy viz --serve`` mode.
 
 The server provides:
-  GET  /          — serves the self-contained HTML viz (with NL query bar enabled)
-  GET  /api/query — NL semantic search, returns JSON hits + optional explanation
-  GET  /api/graph — returns the full cytoscape.js graph data as JSON
-  GET  /api/stats — returns graph statistics (node/edge counts by kind)
+  GET  /                    — serves the self-contained HTML viz (NL query bar enabled)
+  GET  /api/query           — NL semantic search: returns JSON hits + optional LLM explanation
+  GET  /api/node/{node_id}  — full detail for a single node (signature, docstring, body)
+  GET  /api/graph           — full cytoscape.js graph data as JSON (raw graph export)
+  GET  /api/stats           — graph statistics (node/edge counts by kind/language)
 
 The NL query bar in the HTML calls /api/query to highlight matching nodes in the
-graph and display an optional LLM explanation.
+graph and display result cards with signature, docstring, source, and callers/callees.
+Clicking "Jump to" on a card calls showLevel2() + highlight in the canvas renderer.
 
 This module is only imported when ``graphmy[serve]`` is installed.
 If FastAPI or uvicorn are not installed, a clear error is raised.
@@ -84,12 +86,12 @@ def create_app(
     )
 
     # Pre-render the HTML once at startup (graph data is static between requests).
-    # This means even large graphs load instantly in the browser — no server-side
-    # rendering happens per-request.
+    # Pass nl_enabled=True so the template shows the NL query bar.
     html_content = render_html_string(
         graph=graph,
         project_root=project_root,
         graphmy_version=graphmy_version,
+        nl_enabled=True,
     )
 
     # Create the FastAPI app.
@@ -110,8 +112,8 @@ def create_app(
         """
         Serve the self-contained graph visualisation HTML page.
 
-        The HTML includes all cytoscape.js styling and an NL query bar
-        that calls /api/query to highlight matching nodes.
+        The HTML includes the NL query bar that calls /api/query to highlight
+        matching nodes and display result cards.
         """
         return HTMLResponse(content=html_content)
 
@@ -146,15 +148,98 @@ def create_app(
         """
         Run a natural-language query and return matching symbols.
 
-        The response contains:
-          - ``hits``:  ranked list of matching symbols with callers/callees
-          - ``explanation``: LLM-synthesized answer (empty if explain=False or no key)
+        Response shape::
 
-        The viz JS calls this endpoint and highlights the returned node_ids in
-        the cytoscape graph.
+            {
+              "query": "...",
+              "hits": [
+                {
+                  "node": { node_id, kind, name, qualified, file, line, end_line,
+                             language, docstring, signature, is_async, decorators },
+                  "distance": 0.12,
+                  "is_expansion": false,
+                  "callers": [ ...slim node dicts... ],
+                  "callees": [ ...slim node dicts... ]
+                }
+              ],
+              "explanation": "..."   // empty unless explain=true + OpenAI key configured
+            }
+
+        The viz JS calls this endpoint, renders result cards, and highlights the
+        returned node_ids on the canvas.
         """
         result = nl_engine.run(query=q, limit=limit, explain=explain)
         return JSONResponse(content=result.as_dict())
+
+    @app.get("/api/node/{node_id:path}")
+    async def api_node(node_id: str) -> JSONResponse:
+        """
+        Return full detail for a single symbol node, including its source body.
+
+        The ``node_id:path`` converter allows slashes in node IDs
+        (e.g. ``api/auth.py::validate_token``).
+
+        Response shape::
+
+            {
+              "node_id":    "api/auth.py::validate_token",
+              "kind":       "function",
+              "name":       "validate_token",
+              "qualified":  "auth.validate_token",
+              "file":       "api/auth.py",
+              "line":       42,
+              "end_line":   61,
+              "language":   "python",
+              "signature":  "def validate_token(token: str) -> bool:",
+              "docstring":  "Validate a JWT token ...",
+              "body":       "def validate_token(...): ...",
+              "is_async":   false,
+              "decorators": [],
+              "callers": [ ...slim node dicts (name, file, line, kind)... ],
+              "callees": [ ...slim node dicts... ]
+            }
+
+        Returns 404 if the node_id is not found in the graph.
+        """
+        from fastapi import HTTPException
+
+        node = graph.get_node(node_id)
+        if node is None:
+            raise HTTPException(status_code=404, detail=f"Node not found: {node_id}")
+
+        # Build slim caller/callee lists (no body — just enough for context links).
+        def _slim(n: Any) -> dict[str, Any]:
+            return {
+                "node_id": n.node_id,
+                "name": n.name,
+                "kind": n.kind.value if hasattr(n.kind, "value") else str(n.kind),
+                "file": n.file or "",
+                "line": n.line or 0,
+                "language": n.language or "",
+            }
+
+        callers = [_slim(c) for c in graph.callers(node_id)]
+        callees = [_slim(c) for c in graph.callees(node_id)]
+
+        return JSONResponse(
+            content={
+                "node_id": node.node_id,
+                "kind": node.kind.value if hasattr(node.kind, "value") else str(node.kind),
+                "name": node.name,
+                "qualified": node.qualified or "",
+                "file": node.file or "",
+                "line": node.line or 0,
+                "end_line": node.end_line or 0,
+                "language": node.language or "",
+                "signature": node.signature or "",
+                "docstring": node.docstring or "",
+                "body": node.body or "",
+                "is_async": bool(node.is_async),
+                "decorators": list(node.decorators or []),
+                "callers": callers,
+                "callees": callees,
+            }
+        )
 
     return app
 

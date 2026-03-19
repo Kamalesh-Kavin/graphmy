@@ -243,6 +243,7 @@ def call_chain(
 
     # Build a CALLS-only view of the graph for the path search.
     g = graph.graph
+    calls_view: nx.MultiDiGraph  # type: ignore[type-arg]
     calls_view = nx.MultiDiGraph(
         (src, tgt, attrs)
         for src, tgt, attrs in g.edges(data=True)

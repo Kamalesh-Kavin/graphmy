@@ -244,10 +244,12 @@ class RustParser(LanguageParser):
             # Skip if inside an impl block
             if self._find_parent_impl(func_def):
                 continue
-            name_node = next((n for n in f_caps.get("func.name", []) if n.parent == func_def), None)
-            if not name_node or not name_node.text:
+            func_name_node: Node | None = next(
+                (n for n in f_caps.get("func.name", []) if n.parent == func_def), None
+            )
+            if not func_name_node or not func_name_node.text:
                 continue
-            func_name = name_node.text.decode("utf-8")
+            func_name = func_name_node.text.decode("utf-8")
             node_id = self._make_node_id(rel_file, func_name)
             start_line = func_def.start_point[0] + 1
             end_line = func_def.end_point[0] + 1
@@ -301,7 +303,7 @@ class RustParser(LanguageParser):
     def _extract_rust_doc(self, node: Node, source_lines: list[str]) -> str:
         """Extract /// doc comments directly preceding a Rust item."""
         start_line = node.start_point[0]
-        doc_lines = []
+        doc_lines: list[str] = []
         for i in range(start_line - 1, -1, -1):
             stripped = source_lines[i].strip()
             if stripped.startswith("///"):

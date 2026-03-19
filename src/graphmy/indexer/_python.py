@@ -298,8 +298,8 @@ class PythonParser(LanguageParser):
         import_cursor = QueryCursor(_IMPORT_QUERY)
         import_captures: dict[str, list[Node]] = import_cursor.captures(root)
 
-        for node in import_captures.get("import.module", []):
-            module_name = node.text.decode("utf-8") if node.text else ""
+        for import_node in import_captures.get("import.module", []):
+            module_name = import_node.text.decode("utf-8") if import_node.text else ""
             if module_name:
                 target_id = self._make_external_id(module_name)
                 result.edges.append(
@@ -310,8 +310,8 @@ class PythonParser(LanguageParser):
                     )
                 )
 
-        for node in import_captures.get("import.from_module", []):
-            module_name = node.text.decode("utf-8") if node.text else ""
+        for import_node in import_captures.get("import.from_module", []):
+            module_name = import_node.text.decode("utf-8") if import_node.text else ""
             if module_name:
                 target_id = self._make_external_id(module_name)
                 result.edges.append(

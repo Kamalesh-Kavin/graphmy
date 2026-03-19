@@ -3,24 +3,25 @@ graphmy/viz/_template.py
 =========================
 Jinja2 template loader and HTML file writer for the static viz output.
 
-The static viz is a **lightweight tree view** — no graph canvas, no CDN,
-no NL query bar.  It shows folder → file → class → method/function.
-Click a node to see kind, location, signature and docstring in a slim
-detail panel.  Source bodies are never embedded.
+The static viz is a **two-level directed call graph**:
+
+- Level 1 (default): one node per source file, edges = aggregated CALLS
+  between files.  Node size ∝ in-degree (how often the file is called into).
+- Level 2 (drill-down): click a file node to see its functions/methods and
+  their intra-file call edges, plus arrows to the files they call out to.
+
+Rendered on an HTML ``<canvas>`` using D3 force simulation — no SVG, no CDN.
 
 Data passed to the template
 ----------------------------
-``tree_json``
-    JSON string of the nested slim tree.  Each node: id, name, kind,
-    language, file, line, is_async, children[].
+``flow_json``
+    JSON string of the full flow graph data::
 
-``detail_json``
-    JSON string of  { node_id → {sig?, doc?, qualified?, end_line?,
-    decorators?, children_summary?} }.  Looked up on click only.
-
-``all_nodes_json``
-    JSON string of flat  [{ id, name, kind, file, line }]  for the
-    client-side search box.
+        {
+          nodes:     [{ id, label, language, in_degree, out_degree, symbol_count }],
+          edges:     [{ source, target, weight }],
+          subgraphs: { file_path: { nodes: [...], edges: [...] } },
+        }
 
 ``project_name``, ``node_count``, ``edge_count``, ``file_count``
     Toolbar metadata.
@@ -38,7 +39,7 @@ from pathlib import Path
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from graphmy.graph._store import GraphStore
-from graphmy.viz._exporter import export_tree
+from graphmy.viz._exporter import export_flow_graph
 
 
 def render_html(
@@ -66,7 +67,8 @@ def render_html(
     """
     output_path = output_path.resolve()
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    html = _render_template(graph, project_root, graphmy_version)
+    # Static file export never needs the NL query bar.
+    html = _render_template(graph, project_root, graphmy_version, nl_enabled=False)
     output_path.write_text(html, encoding="utf-8")
     return output_path
 
@@ -75,12 +77,23 @@ def render_html_string(
     graph: GraphStore,
     project_root: Path,
     graphmy_version: str = "0.1.0",
+    nl_enabled: bool = False,
 ) -> str:
     """
     Render the graph as an HTML string without writing to disk.
     Used by the FastAPI server (serve mode).
+
+    Parameters
+    ----------
+    graph : GraphStore
+    project_root : Path
+    graphmy_version : str
+    nl_enabled : bool
+        When True the template is told to render the NL query bar and results
+        panel (wired up to ``/api/query``).  Currently passed through to the
+        template context; the bar UI is implemented in a future release.
     """
-    return _render_template(graph, project_root, graphmy_version)
+    return _render_template(graph, project_root, graphmy_version, nl_enabled=nl_enabled)
 
 
 # ---------------------------------------------------------------------------
@@ -92,7 +105,20 @@ def _render_template(
     graph: GraphStore,
     project_root: Path,
     graphmy_version: str,
+    nl_enabled: bool = False,
 ) -> str:
+    """
+    Internal renderer shared by ``render_html`` and ``render_html_string``.
+
+    Parameters
+    ----------
+    graph : GraphStore
+    project_root : Path
+    graphmy_version : str
+    nl_enabled : bool
+        Passed to the Jinja template as ``nl_enabled`` so it can conditionally
+        render the NL query bar.  Defaults to ``False`` (static export).
+    """
     templates_dir = Path(__file__).parent / "templates"
 
     env = Environment(
@@ -102,16 +128,21 @@ def _render_template(
     )
 
     template = env.get_template("graph.html.j2")
-    data = export_tree(graph)
+    data = export_flow_graph(graph)
+
+    flow_payload = {
+        "nodes": data["nodes"],
+        "edges": data["edges"],
+        "subgraphs": data["subgraphs"],
+    }
 
     return template.render(
-        tree_json=json.dumps(data["tree"], ensure_ascii=False),
-        detail_json=json.dumps(data["detail"], ensure_ascii=False),
-        all_nodes_json=json.dumps(data["all_nodes"], ensure_ascii=False),
+        flow_json=json.dumps(flow_payload, ensure_ascii=False),
         project_name=project_root.name,
         node_count=data["stats"]["node_count"],
         edge_count=data["stats"]["edge_count"],
         file_count=data["stats"]["file_count"],
         generated_at=datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
         graphmy_version=graphmy_version,
+        nl_enabled=nl_enabled,
     )

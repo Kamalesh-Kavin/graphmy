@@ -436,7 +436,7 @@ class JavaScriptParser(LanguageParser):
         prev_line = source_lines[start_line - 1].strip()
         if prev_line.endswith("*/"):
             # Walk backward to find the opening /**
-            comment_lines = []
+            comment_lines: list[str] = []
             for i in range(start_line - 1, -1, -1):
                 comment_lines.insert(0, source_lines[i].strip())
                 if source_lines[i].strip().startswith("/**") or source_lines[i].strip().startswith(

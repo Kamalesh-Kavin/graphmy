@@ -108,7 +108,7 @@ class Embedder:
         # .tolist() converts to a plain Python list[list[float]] which is
         # JSON-serialisable and accepted by chromadb.
         vectors = model.encode(texts, show_progress_bar=False, convert_to_numpy=True)
-        return vectors.tolist()  # type: ignore[union-attr]
+        return vectors.tolist()  # type: ignore[no-any-return,union-attr]
 
     # ------------------------------------------------------------------
     # Model lifecycle
