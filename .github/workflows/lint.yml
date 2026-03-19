@@ -1,0 +1,55 @@
+# .github/workflows/lint.yml
+# ==========================
+# Runs ruff linter and mypy type checker on every push and pull request.
+#
+# Why both?
+#   - ruff:  catches style issues, unused imports, and common bugs instantly.
+#   - mypy:  catches type errors that ruff misses (wrong argument types, etc.).
+#
+# We use `uv` as the package manager (same as local dev) to keep CI consistent.
+# Note: `setup-uv` is used WITHOUT `enable-cache: true` per project convention.
+
+name: Lint
+
+on:
+  push:
+    branches: ["main", "master"]
+  pull_request:
+    branches: ["main", "master"]
+
+jobs:
+  lint:
+    name: ruff + mypy
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Install dev dependencies
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          uv sync --extra dev --extra serve --extra openai
+
+      - name: Run ruff (lint)
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          uv run ruff check src/ tests/
+
+      - name: Run ruff (format check)
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          uv run ruff format --check src/ tests/
+
+      - name: Run mypy
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          uv run mypy src/graphmy/

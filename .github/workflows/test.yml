@@ -1,0 +1,55 @@
+# .github/workflows/test.yml
+# ===========================
+# Runs the full pytest suite across Python 3.10, 3.11, and 3.12.
+#
+# Matrix strategy:
+#   Each Python version is tested independently so regressions in any
+#   supported version are caught before merge.
+#
+# Test scope:
+#   - Parser tests (test_indexer_*.py)   — tree-sitter parsing correctness
+#   - Graph store tests (test_graph_store.py) — NetworkX persistence
+#   - Structural query tests            — graph traversal queries
+#   - NL query tests                    — stubbed vector search pipeline
+#
+# Note: NL query tests use stubs so they run fast without downloading
+# the embedding model. Full integration with the model is tested locally.
+
+name: Test
+
+on:
+  push:
+    branches: ["main", "master"]
+  pull_request:
+    branches: ["main", "master"]
+
+jobs:
+  test:
+    name: pytest (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false   # run all versions even if one fails
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Install dependencies
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          uv sync --extra dev --extra serve --extra openai
+
+      - name: Run tests
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          uv run pytest tests/ -v --tb=short

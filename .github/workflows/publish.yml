@@ -1,0 +1,62 @@
+# .github/workflows/publish.yml
+# ==============================
+# Builds the Python wheel and source distribution and publishes to PyPI
+# when a version tag is pushed (e.g. git tag v0.1.0 && git push --tags).
+#
+# Authentication:
+#   Uses the PyPI Trusted Publisher (OIDC) mechanism — no API token stored
+#   as a GitHub secret. You must configure the trusted publisher on PyPI:
+#     Project → Manage → Publishing → Add a new publisher
+#     Publisher: GitHub Actions
+#     Owner:     Kamalesh-Kavin
+#     Repo:      graphmy
+#     Workflow:  publish.yml
+#
+# Release process:
+#   1. Update version in src/graphmy/__init__.py and pyproject.toml
+#   2. Update CHANGELOG.md
+#   3. git commit -m "chore: release vX.Y.Z"
+#   4. git tag vX.Y.Z
+#   5. git push && git push --tags
+#   → This workflow runs automatically and publishes to PyPI.
+
+name: Publish to PyPI
+
+on:
+  push:
+    tags:
+      - "v*"   # e.g. v0.1.0, v1.2.3
+
+jobs:
+  build-and-publish:
+    name: Build and publish
+    runs-on: ubuntu-latest
+    environment: pypi    # maps to the GitHub Environments configuration
+    permissions:
+      id-token: write    # required for PyPI Trusted Publisher OIDC
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Install build dependencies
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          uv sync
+
+      - name: Build wheel and sdist
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          uv build
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        # No username/password needed — uses OIDC Trusted Publisher

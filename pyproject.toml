@@ -1,0 +1,125 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "graphmy"
+version = "0.1.0"
+description = "Parse any codebase, build a knowledge graph, visualise it, and query it in natural language."
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.10"
+authors = [{ name = "Kamalesh-Kavin", email = "kamalesh@example.com" }]
+keywords = ["code", "graph", "visualization", "ast", "tree-sitter", "nlp", "codebase"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Utilities",
+]
+
+# ---------------------------------------------------------------------------
+# Core dependencies — installed with every `pip install graphmy`
+# ---------------------------------------------------------------------------
+dependencies = [
+    # Multi-language source code parsing (Python, JS/TS, Go, Rust, Java)
+    "tree-sitter>=0.24,<0.26",
+    "tree-sitter-python>=0.23",
+    "tree-sitter-javascript>=0.23",
+    "tree-sitter-typescript>=0.23",
+    "tree-sitter-go>=0.23",
+    "tree-sitter-rust>=0.23",
+    "tree-sitter-java>=0.23",
+    # Graph storage and traversal
+    "networkx>=3.0",
+    # Vector embeddings for natural-language queries (code-search fine-tuned)
+    "sentence-transformers>=2.2",
+    # Embedded vector database — no server required
+    # chromadb>=0.5 requires onnxruntime>=1.24.3 which has no cp310 wheel;
+    # pin to 0.4.x (max 0.4.24) until onnxruntime ships cp310 wheels for 1.24+
+    "chromadb>=0.4,<0.5",
+    # onnxruntime 1.24+ has no cp310 wheels; cap at <1.24 for Python 3.10 compat
+    "onnxruntime>=1.14,<1.24; python_version < '3.11'",
+    # CLI framework
+    "click>=8.0",
+    # HTML templating for self-contained viz output
+    "jinja2>=3.0",
+    # TOML config parsing (stdlib in 3.11+, backport for 3.10)
+    "tomli>=2.0; python_version < '3.11'",
+]
+
+[project.optional-dependencies]
+# `pip install graphmy[serve]` — enables `graphmy viz --serve`
+serve = [
+    "fastapi>=0.100",
+    "uvicorn[standard]>=0.20",
+]
+# `pip install graphmy[openai]` — enables LLM-synthesized query answers
+openai = [
+    "openai>=1.0",
+]
+# Development toolchain
+dev = [
+    "pytest>=7.0",
+    "pytest-asyncio>=0.21",
+    "ruff>=0.4",
+    "mypy>=1.0",
+    "types-networkx",
+    # Serve deps needed for viz server tests
+    "fastapi>=0.100",
+    "uvicorn[standard]>=0.20",
+    "httpx>=0.24",      # async test client for FastAPI
+]
+
+[project.urls]
+Homepage = "https://github.com/Kamalesh-Kavin/graphmy"
+Repository = "https://github.com/Kamalesh-Kavin/graphmy"
+Issues = "https://github.com/Kamalesh-Kavin/graphmy/issues"
+Changelog = "https://github.com/Kamalesh-Kavin/graphmy/blob/main/CHANGELOG.md"
+
+# ---------------------------------------------------------------------------
+# CLI entry point — `graphmy` command available after install
+# ---------------------------------------------------------------------------
+[project.scripts]
+graphmy = "graphmy._cli:cli"
+
+# ---------------------------------------------------------------------------
+# Hatchling build — include the Jinja2 template inside the package wheel
+# ---------------------------------------------------------------------------
+[tool.hatch.build.targets.wheel]
+packages = ["src/graphmy"]
+
+# ---------------------------------------------------------------------------
+# Ruff linter / formatter config
+# ---------------------------------------------------------------------------
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "C4", "PIE", "SIM"]
+ignore = ["E501"]   # line length handled by formatter
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101"]  # assert is fine in tests
+
+# ---------------------------------------------------------------------------
+# Mypy type checking config
+# ---------------------------------------------------------------------------
+[tool.mypy]
+python_version = "3.10"
+strict = true
+warn_unused_ignores = false
+ignore_missing_imports = true   # tree-sitter grammar stubs are absent
+
+# ---------------------------------------------------------------------------
+# Pytest config
+# ---------------------------------------------------------------------------
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
