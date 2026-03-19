@@ -61,7 +61,7 @@ class Embedder:
     def __init__(self, model_name: str = DEFAULT_MODEL_NAME) -> None:
         self.model_name = model_name
         # The actual SentenceTransformer instance — None until first use.
-        self._model: "SentenceTransformer | None" = None
+        self._model: SentenceTransformer | None = None
 
     # ------------------------------------------------------------------
     # Public API
@@ -114,7 +114,7 @@ class Embedder:
     # Model lifecycle
     # ------------------------------------------------------------------
 
-    def _get_model(self) -> "SentenceTransformer":
+    def _get_model(self) -> SentenceTransformer:
         """
         Return the loaded model, loading it on first call.
 
@@ -125,7 +125,7 @@ class Embedder:
             self._model = self._load()
         return self._model
 
-    def _load(self) -> "SentenceTransformer":
+    def _load(self) -> SentenceTransformer:
         """
         Actually import sentence-transformers and load the model.
 

@@ -29,7 +29,6 @@ import click
 
 from graphmy import __version__
 
-
 # ---------------------------------------------------------------------------
 # Root command group
 # ---------------------------------------------------------------------------
@@ -89,11 +88,11 @@ def cmd_index(path: str, exclude: tuple[str, ...], fresh: bool, max_body_lines: 
 
     Use --fresh to force a full re-index.
     """
+    from graphmy._cache import CacheDir
     from graphmy._config import GraphmyConfig
     from graphmy.indexer._incremental import Indexer
     from graphmy.search._embedder import Embedder
     from graphmy.search._vector_store import VectorStore
-    from graphmy._cache import CacheDir
 
     project_root = Path(path)
 
@@ -315,7 +314,7 @@ def cmd_viz(
         )
         sys.exit(1)
 
-    click.echo(f"  Loading graph ...")
+    click.echo("  Loading graph ...")
     graph = GraphStore.load(cache.graph_json, project_root)
     stats = graph.stats()
     click.echo(f"  Graph: {stats['total_nodes']} nodes, {stats['total_edges']} edges")
@@ -387,27 +386,27 @@ def cmd_info(path: str) -> None:
 
     click.echo(f"\n  Project:  {project_root}")
     click.echo(f"  Cache:    {cache.root}")
-    click.echo(f"\n  Totals:")
+    click.echo("\n  Totals:")
     click.echo(f"    Nodes:  {stats['total_nodes']}")
     click.echo(f"    Edges:  {stats['total_edges']}")
 
     if stats.get("by_kind"):
-        click.echo(f"\n  Nodes by kind:")
+        click.echo("\n  Nodes by kind:")
         for kind, count in sorted(stats["by_kind"].items(), key=lambda x: -x[1]):
             click.echo(f"    {kind:<12s} {count}")
 
     if stats.get("by_edge"):
-        click.echo(f"\n  Edges by type:")
+        click.echo("\n  Edges by type:")
         for etype, count in sorted(stats["by_edge"].items(), key=lambda x: -x[1]):
             click.echo(f"    {etype:<14s} {count}")
 
     if stats.get("by_language"):
-        click.echo(f"\n  Languages:")
+        click.echo("\n  Languages:")
         for lang, count in sorted(stats["by_language"].items(), key=lambda x: -x[1]):
             click.echo(f"    {lang:<12s} {count}")
 
     # Cache file sizes
-    click.echo(f"\n  Cache files:")
+    click.echo("\n  Cache files:")
     for p in [cache.graph_json, cache.file_hashes_json]:
         if p.exists():
             size_kb = p.stat().st_size / 1024
@@ -435,9 +434,10 @@ def cmd_config(path: str) -> None:
 
     The config file is optional — graphmy works with all defaults.
     """
+    import os
+
     from graphmy._cache import CacheDir
     from graphmy._config import GraphmyConfig
-    import os
 
     project_root = Path(path)
     config = GraphmyConfig.load(project_root)

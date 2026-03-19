@@ -11,10 +11,8 @@ This file exercises the Python parser for:
   - Function calls
 """
 
-import os
-import sys
-from typing import Optional
-
+import os  # noqa: F401 — intentionally imported to test IMPORTS edge detection
+import sys  # noqa: F401 — intentionally imported to test IMPORTS edge detection
 
 # ---------------------------------------------------------------------------
 # Top-level functions

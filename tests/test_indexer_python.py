@@ -28,7 +28,6 @@ import pytest
 from graphmy.graph._model import EdgeKind, SymbolKind
 from graphmy.indexer._python import PythonParser
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -108,9 +107,9 @@ class TestFunctions:
         assert node.file.endswith("app.py")
 
     def test_function_line_numbers(self, nodes_by_name):
-        """greet is on line 24 in the fixture — parser must record this."""
+        """greet is on line 22 in the fixture — parser must record this."""
         node = nodes_by_name["greet"][0]
-        assert node.line == 24, f"Expected line 24, got {node.line}"
+        assert node.line == 22, f"Expected line 22, got {node.line}"
 
     def test_node_id_format(self, nodes_by_name):
         """node_id must follow the '<rel_file>::<name>' pattern."""

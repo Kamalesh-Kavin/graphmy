@@ -22,7 +22,6 @@ import pytest
 from graphmy.graph._model import EdgeKind, SymbolKind
 from graphmy.indexer._javascript import JavaScriptParser
 
-
 FIXTURE_DIR = Path(__file__).parent / "fixtures" / "sample_js"
 FIXTURE_FILE = FIXTURE_DIR / "app.js"
 

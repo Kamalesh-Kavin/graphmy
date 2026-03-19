@@ -71,7 +71,7 @@ def main() -> None:
     # -----------------------------------------------------------------------
     # 3. Open in the default browser.
     # -----------------------------------------------------------------------
-    print(f"[02] Opening in browser...")
+    print("[02] Opening in browser...")
     webbrowser.open(output_file.as_uri())
 
     print(f"[02] Done. Open {output_file} in any browser to explore.")

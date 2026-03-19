@@ -329,7 +329,7 @@ class JavaParser(LanguageParser):
             lines.insert(0, stripped)
             if stripped.startswith("/**"):
                 break
-            if not (stripped.startswith("*") or stripped.startswith("/*")):
+            if not (stripped.startswith(("*", "/*"))):
                 lines.clear()
                 break
         return "\n".join(lines) if lines else ""

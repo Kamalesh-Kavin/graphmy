@@ -28,7 +28,6 @@ from typing import Any
 from graphmy.graph._model import EdgeKind, SymbolNode
 from graphmy.graph._store import GraphStore
 
-
 # ---------------------------------------------------------------------------
 # Result types
 # ---------------------------------------------------------------------------

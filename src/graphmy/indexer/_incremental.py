@@ -30,12 +30,12 @@ import json
 from pathlib import Path
 from typing import Any
 
+from graphmy._cache import CacheDir, file_mtime, file_sha256
+from graphmy._config import GraphmyConfig
 from graphmy.graph._model import Edge, EdgeKind, SymbolKind, SymbolNode
 from graphmy.graph._store import GraphStore
 from graphmy.indexer._base import ParseResult
 from graphmy.indexer._registry import get_parser
-from graphmy._cache import CacheDir, file_mtime, file_sha256
-from graphmy._config import GraphmyConfig
 
 
 class Indexer:

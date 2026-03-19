@@ -18,7 +18,6 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path
 
-
 # The name of the cache folder created inside every indexed project.
 CACHE_DIR_NAME = ".graphmy"
 

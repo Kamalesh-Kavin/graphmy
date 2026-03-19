@@ -104,7 +104,7 @@ class RustParser(LanguageParser):
             ("enum.name", SymbolKind.ENUM),
             ("union.name", SymbolKind.STRUCT),
         ]:
-            def_key = cap_name.replace(".name", ".def")
+            cap_name.replace(".name", ".def")
             for name_node in s_caps.get(cap_name, []):
                 if not name_node.text:
                     continue

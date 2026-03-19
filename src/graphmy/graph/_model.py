@@ -19,7 +19,6 @@ from dataclasses import asdict, dataclass, field
 from enum import Enum
 from typing import Any
 
-
 # ---------------------------------------------------------------------------
 # Symbol kinds
 # ---------------------------------------------------------------------------
@@ -175,7 +174,7 @@ class SymbolNode:
         return d
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "SymbolNode":
+    def from_dict(cls, d: dict[str, Any]) -> SymbolNode:
         """
         Reconstruct a SymbolNode from the dict produced by to_dict().
 

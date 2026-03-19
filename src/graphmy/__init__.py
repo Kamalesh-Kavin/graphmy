@@ -47,7 +47,6 @@ from graphmy._config import GraphmyConfig  # noqa: F401
 from graphmy.graph._model import EdgeKind, SymbolKind, SymbolNode  # noqa: F401
 from graphmy.graph._store import GraphStore  # noqa: F401
 
-
 # ---------------------------------------------------------------------------
 # GraphmyIndex — high-level Python API
 # ---------------------------------------------------------------------------
@@ -94,7 +93,7 @@ class GraphmyIndex:
     # Indexing
     # ------------------------------------------------------------------
 
-    def build(self, fresh: bool = False) -> "GraphmyIndex":
+    def build(self, fresh: bool = False) -> GraphmyIndex:
         """
         Build (or incrementally update) the knowledge graph and vector store.
 
@@ -206,7 +205,6 @@ class GraphmyIndex:
             The path of the written HTML file (non-serve mode only).
         """
         from graphmy._cache import CacheDir
-        from graphmy._config import GraphmyConfig
         from graphmy.viz._template import render_html
 
         graph = self._get_graph()

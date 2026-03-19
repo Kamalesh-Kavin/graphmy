@@ -25,15 +25,14 @@ from graphmy.graph._model import Edge, EdgeKind, SymbolKind, SymbolNode
 from graphmy.graph._store import GraphStore
 from graphmy.query._structural import (
     call_chain,
-    callers,
     callees,
+    callers,
     find_symbol,
     implementors,
     imports_of,
     subclasses,
     superclasses,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
