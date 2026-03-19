@@ -9,6 +9,27 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.4] - 2026-03-19
+
+### Changed
+- **Static viz rewritten as a two-level directed call-flow graph** — replaces
+  the folder tree view with a genuine flow graph showing which file calls which.
+- **Level 1 (overview):** one node per source file (779 nodes for a typical
+  large repo), edges = aggregated inter-file CALLS, node radius ∝ in-degree,
+  colour by language.
+- **Level 2 (drill-down):** click any file node to zoom into its
+  functions/methods and their intra-file CALLS edges.
+- **Renderer:** D3 v7 force simulation on HTML `<canvas>` — no SVG, zero CDN.
+  D3 v7 minified (273 KB) is inlined directly in the HTML.
+- **Interactions:** scroll = zoom, drag = pan, click = drill-down / detail
+  panel, breadcrumb navigation, Reset View button, search autocomplete
+  (jump-to any file or symbol).
+- **Detail panel:** kind badge, file path / location, callers list, callees
+  list, with clickable cross-navigation links.
+- **HTML size:** drops from 3.5 MB (tree view) to **~2.2 MB** for a 779-file
+  codebase — subgraph edges stored as compact `[src_idx, tgt_idx]` integer
+  pairs, inter-file edges omitted from subgraphs (already visible in level-1).
+
 ## [0.1.3] - 2026-03-19
 
 ### Changed

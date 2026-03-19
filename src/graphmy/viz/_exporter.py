@@ -248,6 +248,208 @@ def _trie_to_tree(node: dict[str, Any], prefix: str) -> list[dict[str, Any]]:
 
 
 # ---------------------------------------------------------------------------
+# Flow graph export (static HTML directed graph viz)
+# ---------------------------------------------------------------------------
+
+
+def export_flow_graph(graph: GraphStore) -> dict[str, Any]:
+    """
+    Build a file-level directed call graph for the static HTML viz.
+
+    Level-1 (overview):
+        Nodes  = one node per source file (kind="file").
+        Edges  = aggregated CALLS between files.
+                 Edge weight = number of individual call sites.
+
+    Level-2 (drill-down, per file):
+        Nodes  = all functions/methods defined in that file
+                 + any external file nodes they call.
+        Edges  = CALLS edges from those functions/methods,
+                 annotated with caller and callee names.
+
+    Returns
+    -------
+    dict with keys:
+
+    ``nodes``
+        List of file-node dicts::
+
+            { id, label, language, in_degree, out_degree, symbol_count }
+
+        ``id``           = relative file path (stable, human-readable)
+        ``label``        = basename
+        ``in_degree``    = how many other files call into this one
+        ``out_degree``   = how many other files this one calls into
+        ``symbol_count`` = number of functions/methods defined here
+
+    ``edges``
+        List of inter-file edge dicts::
+
+            { source, target, weight }
+
+        ``source`` / ``target`` = file path ids
+        ``weight``              = number of call sites
+
+    ``subgraphs``
+        Dict ``{ file_path → { nodes, edges } }`` for level-2 drill-down.
+        Each sub-node: ``{ id, label, kind, line, is_async }``
+        Each sub-edge: ``[src_idx, tgt_idx]``  (integer indices into sub.nodes;
+        intra-file CALLS only — inter-file calls visible in level-1)
+
+    ``stats``
+        ``{ node_count, edge_count, file_count }``
+    """
+    all_nodes_map: dict[str, Any] = {n.node_id: n for n in graph.all_nodes()}
+
+    # Map node_id → file path (for non-file nodes, use their .file attribute).
+    node_file: dict[str, str] = {}
+    for n in all_nodes_map.values():
+        kv = n.kind.value if hasattr(n.kind, "value") else str(n.kind)
+        if kv == SymbolKind.FILE.value:
+            node_file[n.node_id] = n.file or n.name
+        elif n.file:
+            node_file[n.node_id] = n.file
+
+    # ---- Level-1: aggregate CALLS edges to file→file ----------------------
+    inter_file_weight: dict[tuple[str, str], int] = defaultdict(int)
+    for src, tgt, attrs in graph.graph.edges(data=True):
+        if attrs.get("kind") != "CALLS":
+            continue
+        sf = node_file.get(src)
+        tf = node_file.get(tgt)
+        if sf and tf and sf != tf:
+            inter_file_weight[(sf, tf)] += 1
+
+    # Collect all file paths that appear in at least one edge + standalone files.
+    file_nodes_map: dict[str, Any] = {
+        n.file or n.name: n
+        for n in all_nodes_map.values()
+        if (n.kind.value if hasattr(n.kind, "value") else str(n.kind)) == SymbolKind.FILE.value
+    }
+    all_file_paths: set[str] = set(file_nodes_map.keys())
+    for sf, tf in inter_file_weight:
+        all_file_paths.add(sf)
+        all_file_paths.add(tf)
+
+    # Compute degree stats per file.
+    in_deg: dict[str, int] = defaultdict(int)
+    out_deg: dict[str, int] = defaultdict(int)
+    for (sf, tf), _w in inter_file_weight.items():
+        out_deg[sf] += 1
+        in_deg[tf] += 1
+
+    # Symbol count per file (functions + methods + classes).
+    sym_count: dict[str, int] = defaultdict(int)
+    for n in all_nodes_map.values():
+        kv = n.kind.value if hasattr(n.kind, "value") else str(n.kind)
+        if kv in ("function", "method", "class") and n.file:
+            sym_count[n.file] += 1
+
+    # Detect language from file extension.
+    _EXT_LANG = {
+        ".py": "python",
+        ".js": "javascript",
+        ".ts": "typescript",
+        ".go": "go",
+        ".rs": "rust",
+        ".java": "java",
+    }
+
+    def _lang(path: str) -> str:
+        fn = all_nodes_map.get(path) or file_nodes_map.get(path)
+        if fn and (fn.language if hasattr(fn, "language") else None):
+            return fn.language or ""
+        ext = PurePosixPath(path).suffix.lower()
+        return _EXT_LANG.get(ext, "")
+
+    l1_nodes = [
+        {
+            "id": fp,
+            "label": PurePosixPath(fp).name,
+            "language": _lang(fp),
+            "in_degree": in_deg[fp],
+            "out_degree": out_deg[fp],
+            "symbol_count": sym_count[fp],
+        }
+        for fp in sorted(all_file_paths)
+    ]
+
+    l1_edges = [
+        {"source": sf, "target": tf, "weight": w}
+        for (sf, tf), w in sorted(inter_file_weight.items(), key=lambda x: -x[1])
+    ]
+
+    # ---- Level-2: per-file subgraph (function/method nodes + CALLS) --------
+    # Symbols defined in each file.
+    file_symbols: dict[str, list[Any]] = defaultdict(list)
+    for n in all_nodes_map.values():
+        kv = n.kind.value if hasattr(n.kind, "value") else str(n.kind)
+        if kv in ("function", "method", "class") and n.file:
+            file_symbols[n.file].append(n)
+
+    subgraphs: dict[str, dict[str, Any]] = {}
+    for fp in all_file_paths:
+        syms = file_symbols.get(fp, [])
+        if not syms:
+            continue
+
+        # Sort symbols by source line for stable ordering.
+        syms_sorted = sorted(syms, key=lambda s: s.line or 0)
+
+        # Slim node list — id is kept for hit-testing; label/kind/line for display.
+        sub_nodes = [
+            {
+                "id": s.node_id,
+                "label": s.name,
+                "kind": s.kind.value if hasattr(s.kind, "value") else str(s.kind),
+                "line": s.line or 0,
+                "is_async": bool(s.is_async),
+            }
+            for s in syms_sorted
+        ]
+
+        # Build an index-based edge list [src_idx, tgt_idx] for intra-file CALLS
+        # only.  Using integer indices (instead of full qualified IDs) keeps the
+        # JSON compact — a single large test file can have thousands of call edges
+        # and long node IDs, so the savings are significant (≈5× smaller).
+        #
+        # Inter-file edges are *not* included here — they are already visible in
+        # the level-1 overview graph as weighted edges between file nodes.
+        node_index: dict[str, int] = {s.node_id: i for i, s in enumerate(syms_sorted)}
+
+        seen_sub: set[tuple[int, int]] = set()
+        sub_edges: list[list[int]] = []
+        for s in syms_sorted:
+            si = node_index[s.node_id]
+            for _, tgt, attrs in graph.graph.out_edges(s.node_id, data=True):
+                if attrs.get("kind") != "CALLS":
+                    continue
+                ti = node_index.get(tgt)
+                if ti is None or ti == si:
+                    # Skip: target not in this file, or self-loop.
+                    continue
+                key = (si, ti)
+                if key not in seen_sub:
+                    seen_sub.add(key)
+                    sub_edges.append([si, ti])
+
+        if sub_nodes:
+            subgraphs[fp] = {"nodes": sub_nodes, "edges": sub_edges}
+
+    stats = graph.stats()
+    return {
+        "nodes": l1_nodes,
+        "edges": l1_edges,
+        "subgraphs": subgraphs,
+        "stats": {
+            "node_count": stats["total_nodes"],
+            "edge_count": stats["total_edges"],
+            "file_count": len(l1_nodes),
+        },
+    }
+
+
+# ---------------------------------------------------------------------------
 # Cytoscape export (kept for --serve mode / subgraph API)
 # ---------------------------------------------------------------------------
 
