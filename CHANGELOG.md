@@ -9,6 +9,18 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-03-19
+
+### Fixed
+- Upgraded `chromadb` dependency from `>=0.4,<0.5` to `>=1.0`, resolving the
+  `AttributeError: np.float_ was removed in NumPy 2.0` crash on Python 3.12+
+  and Python 3.13 environments ([#2](https://github.com/Kamalesh-Kavin/graphmy/issues/2))
+- Removed explicit `onnxruntime<1.24` pin — chromadb 1.x no longer depends on
+  onnxruntime for the local HNSW index (replaced by `chroma-hnswlib`)
+
+### Added
+- Python 3.13 is now officially supported and listed in PyPI classifiers
+
 ## [0.1.0] - 2025-01-01
 
 ### Added
